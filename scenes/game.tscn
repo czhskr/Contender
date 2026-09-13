@@ -1,4 +1,4 @@
-[gd_scene load_steps=9 format=3 uid="uid://y7u4jdf8usbd"]
+[gd_scene load_steps=10 format=3 uid="uid://y7u4jdf8usbd"]
 
 [ext_resource type="Script" path="res://scripts/combat_prototype.gd" id="1_prototype"]
 [ext_resource type="Script" path="res://scripts/player_combat_input.gd" id="2_input"]
@@ -8,6 +8,7 @@
 [ext_resource type="Resource" path="res://data/attacks/right_straight.tres" id="6_right_straight"]
 [ext_resource type="Resource" path="res://data/attacks/left_hook.tres" id="7_left_hook"]
 [ext_resource type="Resource" path="res://data/attacks/right_hook.tres" id="8_right_hook"]
+[ext_resource type="Script" path="res://scripts/player_stamina.gd" id="9_stamina"]
 
 [node name="CombatPrototype" type="Node"]
 script = ExtResource("1_prototype")
@@ -25,13 +26,16 @@ script = ExtResource("2_input")
 script = ExtResource("4_state")
 attacks = Array[ExtResource("3_data_type")]([ExtResource("5_left_straight"), ExtResource("6_right_straight"), ExtResource("7_left_hook"), ExtResource("8_right_hook")])
 
+[node name="PlayerStamina" type="Node" parent="."]
+script = ExtResource("9_stamina")
+
 [node name="DebugHUD" type="CanvasLayer" parent="."]
 
 [node name="Panel" type="PanelContainer" parent="DebugHUD"]
 offset_left = 32.0
 offset_top = 32.0
 offset_right = 500.0
-offset_bottom = 360.0
+offset_bottom = 420.0
 
 [node name="Margin" type="MarginContainer" parent="DebugHUD/Panel"]
 theme_override_constants/margin_left = 20
@@ -53,6 +57,18 @@ A / D              Left / right slip
 S                     Duck
 Space (hold)     High guard
 L                      Toggle head / body target"
+
+[node name="StaminaTitle" type="Label" parent="DebugHUD/Panel/Margin/Content"]
+text = "Player stamina"
+
+[node name="PlayerStaminaBar" type="ProgressBar" parent="DebugHUD/Panel/Margin/Content"]
+custom_minimum_size = Vector2(0, 18)
+value = 100.0
+show_percentage = false
+
+[node name="StaminaValue" type="Label" parent="DebugHUD/Panel/Margin/Content"]
+text = "100.0 / 100.0"
+horizontal_alignment = 2
 
 [node name="Separator" type="HSeparator" parent="DebugHUD/Panel/Margin/Content"]
 

@@ -36,11 +36,11 @@ func _process(delta: float) -> void:
 
 
 func try_start_attack(attack: int) -> bool:
-	if current_state != AttackState.IDLE:
+	if not can_start_attack():
 		attack_rejected.emit(attack, current_attack)
 		return false
 
-	var attack_data := _find_attack_data(attack)
+	var attack_data := get_attack_data(attack)
 	if attack_data == null:
 		push_error("Attack data is missing for attack type %d." % attack)
 		return false
@@ -50,6 +50,10 @@ func try_start_attack(attack: int) -> bool:
 	set_process(true)
 	_enter_state(AttackState.STARTUP, _current_data.startup_time)
 	return true
+
+
+func can_start_attack() -> bool:
+	return current_state == AttackState.IDLE
 
 
 func _advance_state() -> void:
@@ -71,7 +75,7 @@ func _enter_state(next_state: AttackState, duration: float) -> void:
 	state_changed.emit(current_state, current_attack)
 
 
-func _find_attack_data(attack: int) -> AttackDataType:
+func get_attack_data(attack: int) -> AttackDataType:
 	for attack_data in attacks:
 		if attack_data.attack_type == attack:
 			return attack_data

@@ -8,3 +8,4 @@ attack_type = 2
 startup_time = 0.18
 active_time = 0.1
 recovery_time = 0.3
+stamina_cost = 7.0

@@ -10,3 +10,4 @@ extends Resource
 @export_range(0.0, 10.0, 0.01, "or_greater") var startup_time := 0.10
 @export_range(0.0, 10.0, 0.01, "or_greater") var active_time := 0.08
 @export_range(0.0, 10.0, 0.01, "or_greater") var recovery_time := 0.18
+@export_range(0.0, 1000.0, 0.1, "or_greater") var stamina_cost := 4.0

@@ -1,7 +1,13 @@
-[gd_scene load_steps=3 format=3 uid="uid://y7u4jdf8usbd"]
+[gd_scene load_steps=9 format=3 uid="uid://y7u4jdf8usbd"]
 
 [ext_resource type="Script" path="res://scripts/combat_prototype.gd" id="1_prototype"]
 [ext_resource type="Script" path="res://scripts/player_combat_input.gd" id="2_input"]
+[ext_resource type="Script" path="res://scripts/attack_data.gd" id="3_data_type"]
+[ext_resource type="Script" path="res://scripts/player_attack_state.gd" id="4_state"]
+[ext_resource type="Resource" path="res://data/attacks/left_straight.tres" id="5_left_straight"]
+[ext_resource type="Resource" path="res://data/attacks/right_straight.tres" id="6_right_straight"]
+[ext_resource type="Resource" path="res://data/attacks/left_hook.tres" id="7_left_hook"]
+[ext_resource type="Resource" path="res://data/attacks/right_hook.tres" id="8_right_hook"]
 
 [node name="CombatPrototype" type="Node"]
 script = ExtResource("1_prototype")
@@ -15,13 +21,17 @@ mouse_filter = 2
 [node name="PlayerCombatInput" type="Node" parent="."]
 script = ExtResource("2_input")
 
+[node name="PlayerAttackState" type="Node" parent="."]
+script = ExtResource("4_state")
+attacks = Array[ExtResource("3_data_type")]([ExtResource("5_left_straight"), ExtResource("6_right_straight"), ExtResource("7_left_hook"), ExtResource("8_right_hook")])
+
 [node name="DebugHUD" type="CanvasLayer" parent="."]
 
 [node name="Panel" type="PanelContainer" parent="DebugHUD"]
 offset_left = 32.0
 offset_top = 32.0
 offset_right = 500.0
-offset_bottom = 292.0
+offset_bottom = 360.0
 
 [node name="Margin" type="MarginContainer" parent="DebugHUD/Panel"]
 theme_override_constants/margin_left = 20
@@ -61,6 +71,22 @@ custom_minimum_size = Vector2(110, 0)
 text = "High guard"
 
 [node name="GuardValue" type="Label" parent="DebugHUD/Panel/Margin/Content/GuardRow" unique_name_in_owner=true]
+
+[node name="AttackStateRow" type="HBoxContainer" parent="DebugHUD/Panel/Margin/Content"]
+
+[node name="Name" type="Label" parent="DebugHUD/Panel/Margin/Content/AttackStateRow"]
+custom_minimum_size = Vector2(110, 0)
+text = "Attack state"
+
+[node name="AttackStateValue" type="Label" parent="DebugHUD/Panel/Margin/Content/AttackStateRow"]
+
+[node name="CurrentAttackRow" type="HBoxContainer" parent="DebugHUD/Panel/Margin/Content"]
+
+[node name="Name" type="Label" parent="DebugHUD/Panel/Margin/Content/CurrentAttackRow"]
+custom_minimum_size = Vector2(110, 0)
+text = "Current attack"
+
+[node name="CurrentAttackValue" type="Label" parent="DebugHUD/Panel/Margin/Content/CurrentAttackRow"]
 
 [node name="LastInputRow" type="HBoxContainer" parent="DebugHUD/Panel/Margin/Content"]
 

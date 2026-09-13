@@ -21,10 +21,19 @@ const ATTACK_STATE_NAMES := [
 	"ACTIVE",
 	"RECOVERY",
 ]
+const PLAYER_STATE_NAMES := [
+	"IDLE",
+	"ATTACKING",
+	"SLIP LEFT",
+	"SLIP RIGHT",
+	"DUCK",
+	"GUARD",
+]
 
 @onready var combat_input: Node = $PlayerCombatInput
 @onready var attack_state: Node = $PlayerAttackState
 @onready var stamina: Node = $PlayerStamina
+@onready var player_state: Node = $PlayerActionState
 @onready var stamina_bar: ProgressBar = \
 	$DebugHUD/Panel/Margin/Content/PlayerStaminaBar
 @onready var stamina_value: Label = \
@@ -35,6 +44,8 @@ const ATTACK_STATE_NAMES := [
 	$DebugHUD/Panel/Margin/Content/AttackStateRow/AttackStateValue
 @onready var current_attack_value: Label = \
 	$DebugHUD/Panel/Margin/Content/CurrentAttackRow/CurrentAttackValue
+@onready var player_state_value: Label = \
+	$DebugHUD/Panel/Margin/Content/PlayerStateRow/PlayerStateValue
 @onready var last_input_value: Label = \
 	$DebugHUD/Panel/Margin/Content/LastInputRow/LastInputValue
 
@@ -46,22 +57,23 @@ func _ready() -> void:
 	combat_input.target_changed.connect(_on_target_changed)
 	attack_state.state_changed.connect(_on_attack_state_changed)
 	stamina.stamina_changed.connect(_on_stamina_changed)
+	player_state.state_changed.connect(_on_player_state_changed)
 
 	_on_target_changed(combat_input.current_target)
 	_on_guard_changed(combat_input.is_guarding)
 	_on_attack_state_changed(attack_state.current_state, attack_state.current_attack)
 	_on_stamina_changed(stamina.current_stamina, stamina.max_stamina)
+	_on_player_state_changed(player_state.current_state)
 
 
 func _on_attack_requested(
 	attack: int,
 	target: int
 ) -> void:
-	if not attack_state.can_start_attack():
-		last_input_value.text = "Blocked: %s (%s / %s)" % [
+	if not player_state.can_attack():
+		last_input_value.text = "Blocked: %s (player: %s)" % [
 			ATTACK_NAMES[attack],
-			ATTACK_NAMES[attack_state.current_attack],
-			ATTACK_STATE_NAMES[attack_state.current_state],
+			PLAYER_STATE_NAMES[player_state.current_state],
 		]
 		return
 
@@ -87,12 +99,21 @@ func _on_attack_requested(
 
 
 func _on_defense_requested(defense: int) -> void:
-	last_input_value.text = DEFENSE_NAMES[defense]
+	if player_state.try_start_evasion(defense):
+		last_input_value.text = "Accepted: %s" % DEFENSE_NAMES[defense]
+	else:
+		last_input_value.text = "Blocked: %s (player: %s)" % [
+			DEFENSE_NAMES[defense],
+			PLAYER_STATE_NAMES[player_state.current_state],
+		]
 
 
 func _on_guard_changed(is_guarding: bool) -> void:
-	guard_value.text = "ON (holding)" if is_guarding else "OFF"
-	last_input_value.text = "High guard %s" % guard_value.text
+	player_state.set_guard_held(is_guarding)
+	_update_guard_debug()
+	last_input_value.text = "High guard input: %s" % (
+		"PRESSED" if is_guarding else "RELEASED"
+	)
 
 
 func _on_target_changed(target: int) -> void:
@@ -109,3 +130,17 @@ func _on_stamina_changed(current_stamina: float, max_stamina: float) -> void:
 	stamina_bar.max_value = max_stamina
 	stamina_bar.value = current_stamina
 	stamina_value.text = "%.1f / %.1f" % [current_stamina, max_stamina]
+
+
+func _on_player_state_changed(state: int) -> void:
+	player_state_value.text = PLAYER_STATE_NAMES[state]
+	_update_guard_debug()
+
+
+func _update_guard_debug() -> void:
+	if player_state.is_guarding():
+		guard_value.text = "ON"
+	elif combat_input.is_guarding:
+		guard_value.text = "HELD (waiting)"
+	else:
+		guard_value.text = "OFF"

@@ -1,4 +1,4 @@
-[gd_scene load_steps=10 format=3 uid="uid://y7u4jdf8usbd"]
+[gd_scene load_steps=11 format=3 uid="uid://y7u4jdf8usbd"]
 
 [ext_resource type="Script" path="res://scripts/combat_prototype.gd" id="1_prototype"]
 [ext_resource type="Script" path="res://scripts/player_combat_input.gd" id="2_input"]
@@ -9,6 +9,7 @@
 [ext_resource type="Resource" path="res://data/attacks/left_hook.tres" id="7_left_hook"]
 [ext_resource type="Resource" path="res://data/attacks/right_hook.tres" id="8_right_hook"]
 [ext_resource type="Script" path="res://scripts/player_stamina.gd" id="9_stamina"]
+[ext_resource type="Script" path="res://scripts/player_action_state.gd" id="10_action_state"]
 
 [node name="CombatPrototype" type="Node"]
 script = ExtResource("1_prototype")
@@ -29,13 +30,17 @@ attacks = Array[ExtResource("3_data_type")]([ExtResource("5_left_straight"), Ext
 [node name="PlayerStamina" type="Node" parent="."]
 script = ExtResource("9_stamina")
 
+[node name="PlayerActionState" type="Node" parent="." node_paths=PackedStringArray("attack_state")]
+script = ExtResource("10_action_state")
+attack_state = NodePath("../PlayerAttackState")
+
 [node name="DebugHUD" type="CanvasLayer" parent="."]
 
 [node name="Panel" type="PanelContainer" parent="DebugHUD"]
 offset_left = 32.0
 offset_top = 32.0
 offset_right = 500.0
-offset_bottom = 420.0
+offset_bottom = 452.0
 
 [node name="Margin" type="MarginContainer" parent="DebugHUD/Panel"]
 theme_override_constants/margin_left = 20
@@ -103,6 +108,14 @@ custom_minimum_size = Vector2(110, 0)
 text = "Current attack"
 
 [node name="CurrentAttackValue" type="Label" parent="DebugHUD/Panel/Margin/Content/CurrentAttackRow"]
+
+[node name="PlayerStateRow" type="HBoxContainer" parent="DebugHUD/Panel/Margin/Content"]
+
+[node name="Name" type="Label" parent="DebugHUD/Panel/Margin/Content/PlayerStateRow"]
+custom_minimum_size = Vector2(110, 0)
+text = "Player state"
+
+[node name="PlayerStateValue" type="Label" parent="DebugHUD/Panel/Margin/Content/PlayerStateRow"]
 
 [node name="LastInputRow" type="HBoxContainer" parent="DebugHUD/Panel/Margin/Content"]
 

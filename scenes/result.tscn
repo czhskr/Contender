@@ -1,0 +1,35 @@
+[gd_scene format=3 uid="uid://qq4n7ob8o8ii"]
+
+[node name="Result" type="Control" unique_id=1931854569]
+layout_mode = 3
+anchors_preset = 0
+offset_right = 40.0
+offset_bottom = 40.0
+
+[node name="Background" type="ColorRect" parent="." unique_id=1006329718]
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+
+[node name="ResultLabel" type="Label" parent="." unique_id=748767321]
+layout_mode = 0
+offset_right = 40.0
+offset_bottom = 23.0
+
+[node name="DetailLabel" type="Label" parent="." unique_id=1947933612]
+layout_mode = 0
+offset_right = 40.0
+offset_bottom = 23.0
+
+[node name="RetryButton" type="Button" parent="." unique_id=1436044264]
+layout_mode = 0
+offset_right = 8.0
+offset_bottom = 8.0
+
+[node name="TitleButton" type="Button" parent="." unique_id=652501149]
+layout_mode = 0
+offset_right = 8.0
+offset_bottom = 8.0

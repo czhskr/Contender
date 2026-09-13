@@ -11,6 +11,7 @@ config_version=5
 [application]
 
 config/name="Contender"
+run/main_scene="uid://y7u4jdf8usbd"
 config/features=PackedStringArray("4.7", "GL Compatibility")
 config/icon="res://icon.svg"
 
@@ -18,6 +19,54 @@ config/icon="res://icon.svg"
 
 window/stretch/mode="canvas_items"
 window/stretch/aspect="expand"
+
+[input]
+
+combat_left_straight={
+"deadzone": 0.5,
+"events": [Object(InputEventKey,"physical_keycode":74,"unicode":106)
+]
+}
+combat_right_straight={
+"deadzone": 0.5,
+"events": [Object(InputEventKey,"physical_keycode":75,"unicode":107)
+]
+}
+combat_left_hook={
+"deadzone": 0.5,
+"events": [Object(InputEventKey,"shift_pressed":true,"physical_keycode":74,"unicode":74)
+]
+}
+combat_right_hook={
+"deadzone": 0.5,
+"events": [Object(InputEventKey,"shift_pressed":true,"physical_keycode":75,"unicode":75)
+]
+}
+combat_slip_left={
+"deadzone": 0.5,
+"events": [Object(InputEventKey,"physical_keycode":65,"unicode":97)
+]
+}
+combat_slip_right={
+"deadzone": 0.5,
+"events": [Object(InputEventKey,"physical_keycode":68,"unicode":100)
+]
+}
+combat_duck={
+"deadzone": 0.5,
+"events": [Object(InputEventKey,"physical_keycode":83,"unicode":115)
+]
+}
+combat_high_guard={
+"deadzone": 0.5,
+"events": [Object(InputEventKey,"physical_keycode":32,"unicode":32)
+]
+}
+combat_toggle_target={
+"deadzone": 0.5,
+"events": [Object(InputEventKey,"physical_keycode":76,"unicode":108)
+]
+}
 
 [physics]
 

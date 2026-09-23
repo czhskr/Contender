@@ -1,127 +1,380 @@
-[gd_scene load_steps=11 format=3 uid="uid://y7u4jdf8usbd"]
+[gd_scene format=3 uid="uid://y7u4jdf8usbd"]
 
-[ext_resource type="Script" path="res://scripts/combat_prototype.gd" id="1_prototype"]
-[ext_resource type="Script" path="res://scripts/player_combat_input.gd" id="2_input"]
-[ext_resource type="Script" path="res://scripts/attack_data.gd" id="3_data_type"]
-[ext_resource type="Script" path="res://scripts/player_attack_state.gd" id="4_state"]
-[ext_resource type="Resource" path="res://data/attacks/left_straight.tres" id="5_left_straight"]
-[ext_resource type="Resource" path="res://data/attacks/right_straight.tres" id="6_right_straight"]
-[ext_resource type="Resource" path="res://data/attacks/left_hook.tres" id="7_left_hook"]
-[ext_resource type="Resource" path="res://data/attacks/right_hook.tres" id="8_right_hook"]
-[ext_resource type="Script" path="res://scripts/player_stamina.gd" id="9_stamina"]
-[ext_resource type="Script" path="res://scripts/player_action_state.gd" id="10_action_state"]
+[ext_resource type="Script" uid="uid://bfafn8cmvpd20" path="res://scripts/combat_prototype.gd" id="1_prototype"]
+[ext_resource type="Script" uid="uid://dkqosli7vwwhx" path="res://scripts/player_combat_input.gd" id="2_input"]
+[ext_resource type="Script" uid="uid://ca8718iqrfvdk" path="res://scripts/attack_data.gd" id="3_data_type"]
+[ext_resource type="Script" uid="uid://bew1ggsrgfkpc" path="res://scripts/player_attack_state.gd" id="4_state"]
+[ext_resource type="Resource" uid="uid://y4ko38wljvk" path="res://data/attacks/left_straight.tres" id="5_left_straight"]
+[ext_resource type="Resource" uid="uid://hd485tfbhso" path="res://data/attacks/right_straight.tres" id="6_right_straight"]
+[ext_resource type="Resource" uid="uid://baikd75xyak8j" path="res://data/attacks/left_hook.tres" id="7_left_hook"]
+[ext_resource type="Resource" uid="uid://chn3e1ovjarjs" path="res://data/attacks/right_hook.tres" id="8_right_hook"]
+[ext_resource type="Script" uid="uid://4i8gccnxxxvt" path="res://scripts/player_stamina.gd" id="9_stamina"]
+[ext_resource type="Script" uid="uid://cmf3s53d7t2sy" path="res://scripts/player_action_state.gd" id="10_action_state"]
+[ext_resource type="Script" uid="uid://5jhytxe7ly1b" path="res://scripts/opponent_attack_data.gd" id="11_opponent_data_type"]
+[ext_resource type="Script" uid="uid://cdcxb0meieal2" path="res://scripts/opponent_attack_state.gd" id="12_opponent_state"]
+[ext_resource type="Script" uid="uid://cg3rlcse17lvf" path="res://scripts/player_defense_resolver.gd" id="14_defense"]
+[ext_resource type="Resource" uid="uid://cjd22ypl4dk2e" path="res://data/opponent_attacks/left_straight.tres" id="15_opponent_left_straight"]
+[ext_resource type="Resource" uid="uid://r2qabd7j3q0x" path="res://data/opponent_attacks/right_straight.tres" id="16_opponent_right_straight"]
+[ext_resource type="Resource" uid="uid://cntt2s307af5k" path="res://data/opponent_attacks/left_hook.tres" id="17_opponent_left_hook"]
+[ext_resource type="Resource" uid="uid://bgb0v8tlxl2m6" path="res://data/opponent_attacks/right_hook.tres" id="18_opponent_right_hook"]
+[ext_resource type="Script" uid="uid://lrilc6mf6xs5" path="res://scripts/player_offense_resolver.gd" id="20_offense"]
+[ext_resource type="Script" uid="uid://cjivxyike7ngd" path="res://scripts/opponent_stamina.gd" id="21_opponent_stamina"]
+[ext_resource type="Script" uid="uid://b24b1by8po4id" path="res://scripts/knockdown_manager.gd" id="25_knockdown"]
+[ext_resource type="Resource" path="res://data/ko/player_recovery_chance.tres" id="26_player_recovery"]
+[ext_resource type="Resource" path="res://data/ko/opponent_recovery_chance.tres" id="27_opponent_recovery"]
+[ext_resource type="Script" uid="uid://bja74a12o4de1" path="res://scripts/round_manager.gd" id="28_round"]
+[ext_resource type="Script" uid="uid://3f7kidgjjo2t" path="res://scripts/combat_stats.gd" id="29_combat_stats"]
+[ext_resource type="Script" uid="uid://coa0x6lejw6q8" path="res://scripts/round_scorer.gd" id="30_round_scorer"]
+[ext_resource type="Script" uid="uid://uyri7bmsuwrd" path="res://scripts/match_decision.gd" id="31_match_decision"]
+[ext_resource type="Resource" path="res://data/action_speed/player_action_speed.tres" id="33_player_speed"]
+[ext_resource type="Resource" path="res://data/action_speed/opponent_action_speed.tres" id="34_opponent_speed"]
+[ext_resource type="Script" uid="uid://by8wfbn3kuvcn" path="res://scripts/opponent_action_state.gd" id="35_opponent_action"]
+[ext_resource type="Script" uid="uid://j7g0tgbvywtm" path="res://scripts/opponent_ai.gd" id="36_opponent_ai"]
+[ext_resource type="Script" uid="uid://blqub7yd1qfu8" path="res://scripts/hit_stun.gd" id="37_hit_stun"]
+[ext_resource type="Resource" uid="uid://bmr82bxhbo60n" path="res://data/difficulty/normal.tres" id="38_difficulty_normal"]
+[ext_resource type="Script" uid="uid://bfddfnxqpdwy7" path="res://scripts/combat_visual_root.gd" id="39_combat_visual_root"]
+[ext_resource type="Script" uid="uid://fw84eue4egov" path="res://scripts/background_visual.gd" id="40_background_visual"]
+[ext_resource type="Script" uid="uid://6l3j5xrfipsk" path="res://scripts/player_visual.gd" id="41_player_visual"]
+[ext_resource type="Script" uid="uid://dirm3tnty7hxy" path="res://scripts/opponent_visual.gd" id="42_opponent_visual"]
+[ext_resource type="Script" uid="uid://dcq82waec1kv3" path="res://scripts/hit_resolve_coordinator.gd" id="43_hit_resolve"]
+[ext_resource type="Script" uid="uid://dpd4ncdeqqglc" path="res://scripts/knockdown_meter.gd" id="44_kd_meter"]
 
-[node name="CombatPrototype" type="Node"]
+[node name="CombatPrototype" type="Node" unique_id=824776855]
 script = ExtResource("1_prototype")
 
-[node name="Background" type="ColorRect" parent="."]
-offset_right = 1152.0
-offset_bottom = 648.0
-color = Color(0.035, 0.043, 0.059, 1)
-mouse_filter = 2
+[node name="CombatVisualRoot" type="Node2D" parent="." unique_id=1635825880 node_paths=PackedStringArray("background_visual", "opponent_visual", "player_visual", "player_action_state", "offense_resolver", "defense_resolver", "knockdown_manager")]
+script = ExtResource("39_combat_visual_root")
+background_visual = NodePath("BackgroundVisual")
+opponent_visual = NodePath("OpponentVisual")
+player_visual = NodePath("PlayerVisual")
+player_action_state = NodePath("../PlayerActionState")
+offense_resolver = NodePath("../PlayerOffenseResolver")
+defense_resolver = NodePath("../PlayerDefenseResolver")
+knockdown_manager = NodePath("../KnockdownManager")
 
-[node name="PlayerCombatInput" type="Node" parent="."]
+[node name="BackgroundVisual" type="Node2D" parent="CombatVisualRoot" unique_id=308384809]
+script = ExtResource("40_background_visual")
+
+[node name="OpponentVisual" type="Node2D" parent="CombatVisualRoot" unique_id=1381391467 node_paths=PackedStringArray("opponent_attack_state", "opponent_action_state", "offense_resolver", "defense_resolver", "knockdown_manager")]
+script = ExtResource("42_opponent_visual")
+opponent_attack_state = NodePath("../../OpponentAttackState")
+opponent_action_state = NodePath("../../OpponentActionState")
+offense_resolver = NodePath("../../PlayerOffenseResolver")
+defense_resolver = NodePath("../../PlayerDefenseResolver")
+knockdown_manager = NodePath("../../KnockdownManager")
+
+[node name="PlayerVisual" type="Node2D" parent="CombatVisualRoot" unique_id=337641521 node_paths=PackedStringArray("attack_state", "action_state", "knockdown_manager")]
+script = ExtResource("41_player_visual")
+attack_state = NodePath("../../PlayerAttackState")
+action_state = NodePath("../../PlayerActionState")
+knockdown_manager = NodePath("../../KnockdownManager")
+
+[node name="PlayerCombatInput" type="Node" parent="." unique_id=546747862]
 script = ExtResource("2_input")
 
-[node name="PlayerAttackState" type="Node" parent="."]
+[node name="PlayerHitStun" type="Node" parent="." unique_id=2021746707]
+script = ExtResource("37_hit_stun")
+
+[node name="OpponentHitStun" type="Node" parent="." unique_id=610474167]
+script = ExtResource("37_hit_stun")
+
+[node name="HitResolveCoordinator" type="Node" parent="." unique_id=2048193301 node_paths=PackedStringArray("offense_resolver", "defense_resolver", "player_attack_state", "opponent_attack_state")]
+script = ExtResource("43_hit_resolve")
+offense_resolver = NodePath("../PlayerOffenseResolver")
+defense_resolver = NodePath("../PlayerDefenseResolver")
+player_attack_state = NodePath("../PlayerAttackState")
+opponent_attack_state = NodePath("../OpponentAttackState")
+
+[node name="PlayerAttackState" type="Node" parent="." unique_id=1148890709 node_paths=PackedStringArray("player_stamina", "hit_stun")]
 script = ExtResource("4_state")
 attacks = Array[ExtResource("3_data_type")]([ExtResource("5_left_straight"), ExtResource("6_right_straight"), ExtResource("7_left_hook"), ExtResource("8_right_hook")])
+player_stamina = NodePath("../PlayerStamina")
+action_speed_settings = ExtResource("33_player_speed")
+hit_stun = NodePath("../PlayerHitStun")
 
-[node name="PlayerStamina" type="Node" parent="."]
+[node name="PlayerStamina" type="Node" parent="." unique_id=664051470]
 script = ExtResource("9_stamina")
 
-[node name="PlayerActionState" type="Node" parent="." node_paths=PackedStringArray("attack_state")]
+[node name="PlayerKnockdownMeter" type="Node" parent="." unique_id=664051471]
+script = ExtResource("44_kd_meter")
+
+[node name="PlayerActionState" type="Node" parent="." unique_id=1059712445 node_paths=PackedStringArray("attack_state", "player_stamina", "hit_stun")]
 script = ExtResource("10_action_state")
 attack_state = NodePath("../PlayerAttackState")
+player_stamina = NodePath("../PlayerStamina")
+action_speed_settings = ExtResource("33_player_speed")
+hit_stun = NodePath("../PlayerHitStun")
 
-[node name="DebugHUD" type="CanvasLayer" parent="."]
+[node name="PlayerDefenseResolver" type="Node" parent="." unique_id=854589743 node_paths=PackedStringArray("player_action_state", "player_knockdown_meter", "opponent_attack_state", "hit_resolve_coordinator")]
+script = ExtResource("14_defense")
+player_action_state = NodePath("../PlayerActionState")
+player_knockdown_meter = NodePath("../PlayerKnockdownMeter")
+opponent_attack_state = NodePath("../OpponentAttackState")
+hit_resolve_coordinator = NodePath("../HitResolveCoordinator")
 
-[node name="Panel" type="PanelContainer" parent="DebugHUD"]
+[node name="OpponentStamina" type="Node" parent="." unique_id=166697903]
+script = ExtResource("21_opponent_stamina")
+
+[node name="OpponentKnockdownMeter" type="Node" parent="." unique_id=166697904]
+script = ExtResource("44_kd_meter")
+
+[node name="OpponentActionState" type="Node" parent="." unique_id=1598881191 node_paths=PackedStringArray("attack_state", "opponent_stamina", "hit_stun")]
+script = ExtResource("35_opponent_action")
+attack_state = NodePath("../OpponentAttackState")
+opponent_stamina = NodePath("../OpponentStamina")
+action_speed_settings = ExtResource("34_opponent_speed")
+hit_stun = NodePath("../OpponentHitStun")
+
+[node name="PlayerOffenseResolver" type="Node" parent="." unique_id=102926816 node_paths=PackedStringArray("player_attack_state", "opponent_action_state", "opponent_knockdown_meter", "hit_resolve_coordinator")]
+script = ExtResource("20_offense")
+player_attack_state = NodePath("../PlayerAttackState")
+opponent_action_state = NodePath("../OpponentActionState")
+opponent_knockdown_meter = NodePath("../OpponentKnockdownMeter")
+hit_resolve_coordinator = NodePath("../HitResolveCoordinator")
+
+[node name="OpponentAttackState" type="Node" parent="." unique_id=1930892057 node_paths=PackedStringArray("opponent_stamina", "hit_stun")]
+script = ExtResource("12_opponent_state")
+attacks = Array[ExtResource("11_opponent_data_type")]([ExtResource("15_opponent_left_straight"), ExtResource("16_opponent_right_straight"), ExtResource("17_opponent_left_hook"), ExtResource("18_opponent_right_hook")])
+opponent_stamina = NodePath("../OpponentStamina")
+action_speed_settings = ExtResource("34_opponent_speed")
+hit_stun = NodePath("../OpponentHitStun")
+
+[node name="OpponentAI" type="Node" parent="." unique_id=1706310605 node_paths=PackedStringArray("player_attack_state", "opponent_attack_state", "opponent_action_state", "opponent_stamina", "knockdown_manager", "round_manager", "opponent_hit_stun")]
+script = ExtResource("36_opponent_ai")
+difficulty = ExtResource("38_difficulty_normal")
+player_attack_state = NodePath("../PlayerAttackState")
+opponent_attack_state = NodePath("../OpponentAttackState")
+opponent_action_state = NodePath("../OpponentActionState")
+opponent_stamina = NodePath("../OpponentStamina")
+knockdown_manager = NodePath("../KnockdownManager")
+round_manager = NodePath("../RoundManager")
+opponent_hit_stun = NodePath("../OpponentHitStun")
+
+[node name="KnockdownManager" type="Node" parent="." unique_id=1600627935 node_paths=PackedStringArray("player_attack_state", "player_action_state", "opponent_attack_state", "opponent_action_state", "player_stamina", "opponent_stamina", "player_knockdown_meter", "opponent_knockdown_meter", "defense_resolver", "offense_resolver", "player_hit_stun", "opponent_hit_stun")]
+script = ExtResource("25_knockdown")
+player_attack_state = NodePath("../PlayerAttackState")
+player_action_state = NodePath("../PlayerActionState")
+opponent_attack_state = NodePath("../OpponentAttackState")
+opponent_action_state = NodePath("../OpponentActionState")
+player_stamina = NodePath("../PlayerStamina")
+opponent_stamina = NodePath("../OpponentStamina")
+player_knockdown_meter = NodePath("../PlayerKnockdownMeter")
+opponent_knockdown_meter = NodePath("../OpponentKnockdownMeter")
+defense_resolver = NodePath("../PlayerDefenseResolver")
+offense_resolver = NodePath("../PlayerOffenseResolver")
+player_recovery_settings = ExtResource("26_player_recovery")
+opponent_recovery_settings = ExtResource("27_opponent_recovery")
+player_hit_stun = NodePath("../PlayerHitStun")
+opponent_hit_stun = NodePath("../OpponentHitStun")
+
+[node name="RoundManager" type="Node" parent="." unique_id=848370363 node_paths=PackedStringArray("knockdown_manager", "player_attack_state", "player_action_state", "opponent_attack_state", "opponent_action_state", "player_stamina", "opponent_stamina", "player_knockdown_meter", "opponent_knockdown_meter", "defense_resolver", "offense_resolver", "player_hit_stun", "opponent_hit_stun")]
+script = ExtResource("28_round")
+knockdown_manager = NodePath("../KnockdownManager")
+player_attack_state = NodePath("../PlayerAttackState")
+player_action_state = NodePath("../PlayerActionState")
+opponent_attack_state = NodePath("../OpponentAttackState")
+opponent_action_state = NodePath("../OpponentActionState")
+player_stamina = NodePath("../PlayerStamina")
+opponent_stamina = NodePath("../OpponentStamina")
+player_knockdown_meter = NodePath("../PlayerKnockdownMeter")
+opponent_knockdown_meter = NodePath("../OpponentKnockdownMeter")
+defense_resolver = NodePath("../PlayerDefenseResolver")
+offense_resolver = NodePath("../PlayerOffenseResolver")
+player_hit_stun = NodePath("../PlayerHitStun")
+opponent_hit_stun = NodePath("../OpponentHitStun")
+
+[node name="CombatStats" type="Node" parent="." unique_id=1035422726 node_paths=PackedStringArray("player_attack_state", "opponent_attack_state", "defense_resolver", "offense_resolver", "knockdown_manager", "round_manager")]
+script = ExtResource("29_combat_stats")
+player_attack_state = NodePath("../PlayerAttackState")
+opponent_attack_state = NodePath("../OpponentAttackState")
+defense_resolver = NodePath("../PlayerDefenseResolver")
+offense_resolver = NodePath("../PlayerOffenseResolver")
+knockdown_manager = NodePath("../KnockdownManager")
+round_manager = NodePath("../RoundManager")
+
+[node name="RoundScorer" type="Node" parent="." unique_id=208572626]
+script = ExtResource("30_round_scorer")
+
+[node name="MatchDecision" type="Node" parent="." unique_id=1637511998 node_paths=PackedStringArray("combat_stats", "round_scorer", "round_manager")]
+script = ExtResource("31_match_decision")
+combat_stats = NodePath("../CombatStats")
+round_scorer = NodePath("../RoundScorer")
+round_manager = NodePath("../RoundManager")
+
+[node name="DebugHUD" type="CanvasLayer" parent="." unique_id=2120275065]
+layer = 2
+
+[node name="Panel" type="PanelContainer" parent="DebugHUD" unique_id=1498927952]
 offset_left = 32.0
 offset_top = 32.0
 offset_right = 500.0
-offset_bottom = 452.0
+offset_bottom = 800.0
 
-[node name="Margin" type="MarginContainer" parent="DebugHUD/Panel"]
+[node name="Margin" type="MarginContainer" parent="DebugHUD/Panel" unique_id=1020842713]
+layout_mode = 2
 theme_override_constants/margin_left = 20
 theme_override_constants/margin_top = 16
 theme_override_constants/margin_right = 20
 theme_override_constants/margin_bottom = 16
 
-[node name="Content" type="VBoxContainer" parent="DebugHUD/Panel/Margin"]
+[node name="Content" type="VBoxContainer" parent="DebugHUD/Panel/Margin" unique_id=1814317816]
+layout_mode = 2
 theme_override_constants/separation = 10
 
-[node name="Title" type="Label" parent="DebugHUD/Panel/Margin/Content"]
+[node name="Title" type="Label" parent="DebugHUD/Panel/Margin/Content" unique_id=766253032]
+layout_mode = 2
 theme_override_font_sizes/font_size = 24
 text = "COMBAT INPUT PROTOTYPE"
 
-[node name="Controls" type="Label" parent="DebugHUD/Panel/Margin/Content"]
+[node name="Controls" type="Label" parent="DebugHUD/Panel/Margin/Content" unique_id=1929973984]
+layout_mode = 2
 text = "J / K              Left / right straight
 Shift + J / K    Left / right hook
 A / D              Left / right slip
-S                     Duck
 Space (hold)     High guard
-L                      Toggle head / body target"
+F1 / F2            Force player / opponent down"
 
-[node name="StaminaTitle" type="Label" parent="DebugHUD/Panel/Margin/Content"]
+[node name="StaminaTitle" type="Label" parent="DebugHUD/Panel/Margin/Content" unique_id=1784982193]
+layout_mode = 2
 text = "Player stamina"
 
-[node name="PlayerStaminaBar" type="ProgressBar" parent="DebugHUD/Panel/Margin/Content"]
+[node name="PlayerStaminaBar" type="ProgressBar" parent="DebugHUD/Panel/Margin/Content" unique_id=1068530792]
 custom_minimum_size = Vector2(0, 18)
+layout_mode = 2
 value = 100.0
 show_percentage = false
 
-[node name="StaminaValue" type="Label" parent="DebugHUD/Panel/Margin/Content"]
+[node name="StaminaValue" type="Label" parent="DebugHUD/Panel/Margin/Content" unique_id=1848265136]
+layout_mode = 2
 text = "100.0 / 100.0"
 horizontal_alignment = 2
 
-[node name="Separator" type="HSeparator" parent="DebugHUD/Panel/Margin/Content"]
+[node name="PlayerKnockdownMeterBar" type="ProgressBar" parent="DebugHUD/Panel/Margin/Content" unique_id=1068530793]
+custom_minimum_size = Vector2(0, 16)
+layout_mode = 2
+show_percentage = false
 
-[node name="TargetRow" type="HBoxContainer" parent="DebugHUD/Panel/Margin/Content"]
+[node name="PlayerKnockdownMeterValue" type="Label" parent="DebugHUD/Panel/Margin/Content" unique_id=1848265137]
+layout_mode = 2
+text = "KD 0 / 100"
+horizontal_alignment = 2
 
-[node name="Name" type="Label" parent="DebugHUD/Panel/Margin/Content/TargetRow"]
+[node name="OpponentStaminaTitle" type="Label" parent="DebugHUD/Panel/Margin/Content" unique_id=946013511]
+layout_mode = 2
+text = "Opponent stamina"
+
+[node name="OpponentStaminaBar" type="ProgressBar" parent="DebugHUD/Panel/Margin/Content" unique_id=464164412]
+custom_minimum_size = Vector2(0, 18)
+layout_mode = 2
+value = 100.0
+show_percentage = false
+
+[node name="OpponentStaminaValue" type="Label" parent="DebugHUD/Panel/Margin/Content" unique_id=1214633810]
+layout_mode = 2
+text = "100.0 / 100.0"
+horizontal_alignment = 2
+
+[node name="OpponentKnockdownMeterBar" type="ProgressBar" parent="DebugHUD/Panel/Margin/Content" unique_id=464164413]
+custom_minimum_size = Vector2(0, 16)
+layout_mode = 2
+show_percentage = false
+
+[node name="OpponentKnockdownMeterValue" type="Label" parent="DebugHUD/Panel/Margin/Content" unique_id=1214633811]
+layout_mode = 2
+text = "KD 0 / 100"
+horizontal_alignment = 2
+
+[node name="Separator" type="HSeparator" parent="DebugHUD/Panel/Margin/Content" unique_id=228658846]
+layout_mode = 2
+
+[node name="GuardRow" type="HBoxContainer" parent="DebugHUD/Panel/Margin/Content" unique_id=289083501]
+layout_mode = 2
+
+[node name="Name" type="Label" parent="DebugHUD/Panel/Margin/Content/GuardRow" unique_id=1716165220]
 custom_minimum_size = Vector2(110, 0)
-text = "Target"
-
-[node name="TargetValue" type="Label" parent="DebugHUD/Panel/Margin/Content/TargetRow" unique_name_in_owner=true]
-
-[node name="GuardRow" type="HBoxContainer" parent="DebugHUD/Panel/Margin/Content"]
-
-[node name="Name" type="Label" parent="DebugHUD/Panel/Margin/Content/GuardRow"]
-custom_minimum_size = Vector2(110, 0)
+layout_mode = 2
 text = "High guard"
 
-[node name="GuardValue" type="Label" parent="DebugHUD/Panel/Margin/Content/GuardRow" unique_name_in_owner=true]
+[node name="GuardValue" type="Label" parent="DebugHUD/Panel/Margin/Content/GuardRow" unique_id=68482]
+layout_mode = 2
 
-[node name="AttackStateRow" type="HBoxContainer" parent="DebugHUD/Panel/Margin/Content"]
+[node name="AttackStateRow" type="HBoxContainer" parent="DebugHUD/Panel/Margin/Content" unique_id=363178568]
+layout_mode = 2
 
-[node name="Name" type="Label" parent="DebugHUD/Panel/Margin/Content/AttackStateRow"]
+[node name="Name" type="Label" parent="DebugHUD/Panel/Margin/Content/AttackStateRow" unique_id=691869206]
 custom_minimum_size = Vector2(110, 0)
+layout_mode = 2
 text = "Attack state"
 
-[node name="AttackStateValue" type="Label" parent="DebugHUD/Panel/Margin/Content/AttackStateRow"]
+[node name="AttackStateValue" type="Label" parent="DebugHUD/Panel/Margin/Content/AttackStateRow" unique_id=1195421702]
+layout_mode = 2
 
-[node name="CurrentAttackRow" type="HBoxContainer" parent="DebugHUD/Panel/Margin/Content"]
+[node name="CurrentAttackRow" type="HBoxContainer" parent="DebugHUD/Panel/Margin/Content" unique_id=84725611]
+layout_mode = 2
 
-[node name="Name" type="Label" parent="DebugHUD/Panel/Margin/Content/CurrentAttackRow"]
+[node name="Name" type="Label" parent="DebugHUD/Panel/Margin/Content/CurrentAttackRow" unique_id=436582828]
 custom_minimum_size = Vector2(110, 0)
+layout_mode = 2
 text = "Current attack"
 
-[node name="CurrentAttackValue" type="Label" parent="DebugHUD/Panel/Margin/Content/CurrentAttackRow"]
+[node name="CurrentAttackValue" type="Label" parent="DebugHUD/Panel/Margin/Content/CurrentAttackRow" unique_id=1591641441]
+layout_mode = 2
 
-[node name="PlayerStateRow" type="HBoxContainer" parent="DebugHUD/Panel/Margin/Content"]
+[node name="PlayerStateRow" type="HBoxContainer" parent="DebugHUD/Panel/Margin/Content" unique_id=344842335]
+layout_mode = 2
 
-[node name="Name" type="Label" parent="DebugHUD/Panel/Margin/Content/PlayerStateRow"]
+[node name="Name" type="Label" parent="DebugHUD/Panel/Margin/Content/PlayerStateRow" unique_id=1016255788]
 custom_minimum_size = Vector2(110, 0)
+layout_mode = 2
 text = "Player state"
 
-[node name="PlayerStateValue" type="Label" parent="DebugHUD/Panel/Margin/Content/PlayerStateRow"]
+[node name="PlayerStateValue" type="Label" parent="DebugHUD/Panel/Margin/Content/PlayerStateRow" unique_id=339536744]
+layout_mode = 2
 
-[node name="LastInputRow" type="HBoxContainer" parent="DebugHUD/Panel/Margin/Content"]
+[node name="MatchStatusRow" type="HBoxContainer" parent="DebugHUD/Panel/Margin/Content" unique_id=917866125]
+layout_mode = 2
 
-[node name="Name" type="Label" parent="DebugHUD/Panel/Margin/Content/LastInputRow"]
+[node name="Name" type="Label" parent="DebugHUD/Panel/Margin/Content/MatchStatusRow" unique_id=1103522869]
 custom_minimum_size = Vector2(110, 0)
+layout_mode = 2
+text = "Match status"
+
+[node name="MatchStatusValue" type="Label" parent="DebugHUD/Panel/Margin/Content/MatchStatusRow" unique_id=1459613369]
+layout_mode = 2
+text = "FIGHTING"
+
+[node name="RoundStatusRow" type="HBoxContainer" parent="DebugHUD/Panel/Margin/Content" unique_id=300039266]
+layout_mode = 2
+
+[node name="Name" type="Label" parent="DebugHUD/Panel/Margin/Content/RoundStatusRow" unique_id=1439757461]
+custom_minimum_size = Vector2(110, 0)
+layout_mode = 2
+text = "Round"
+
+[node name="RoundStatusValue" type="Label" parent="DebugHUD/Panel/Margin/Content/RoundStatusRow" unique_id=2139137201]
+layout_mode = 2
+text = "ROUND -- / 3"
+
+[node name="ScoreStatusRow" type="HBoxContainer" parent="DebugHUD/Panel/Margin/Content" unique_id=463707292]
+layout_mode = 2
+
+[node name="Name" type="Label" parent="DebugHUD/Panel/Margin/Content/ScoreStatusRow" unique_id=106108609]
+custom_minimum_size = Vector2(110, 0)
+layout_mode = 2
+text = "Score"
+
+[node name="ScoreStatusValue" type="Label" parent="DebugHUD/Panel/Margin/Content/ScoreStatusRow" unique_id=1990866799]
+layout_mode = 2
+text = "--"
+
+[node name="LastInputRow" type="HBoxContainer" parent="DebugHUD/Panel/Margin/Content" unique_id=885281955]
+layout_mode = 2
+
+[node name="Name" type="Label" parent="DebugHUD/Panel/Margin/Content/LastInputRow" unique_id=1805522646]
+custom_minimum_size = Vector2(110, 0)
+layout_mode = 2
 text = "Last input"
 
-[node name="LastInputValue" type="Label" parent="DebugHUD/Panel/Margin/Content/LastInputRow" unique_name_in_owner=true]
+[node name="LastInputValue" type="Label" parent="DebugHUD/Panel/Margin/Content/LastInputRow" unique_id=1985272474]
+layout_mode = 2
 text = "None"

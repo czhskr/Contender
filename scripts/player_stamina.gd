@@ -18,8 +18,10 @@ signal stamina_changed(current_stamina: float, max_stamina: float)
 
 var current_stamina := 0.0
 var max_stamina := 0.0
+var regeneration_enabled := true
 
 var _time_since_last_attack := INF
+var _time_since_regen_block := INF
 var _consecutive_attack_count := 0
 
 
@@ -31,12 +33,16 @@ func _ready() -> void:
 
 func _process(delta: float) -> void:
 	_time_since_last_attack += delta
+	_time_since_regen_block += delta
 
 	if _time_since_last_attack > repeated_attack_window:
 		_consecutive_attack_count = 0
 
+	if not regeneration_enabled:
+		return
+
 	if (
-		_time_since_last_attack >= regeneration_delay
+		_time_since_regen_block >= regeneration_delay
 		and current_stamina < max_stamina
 	):
 		current_stamina = minf(
@@ -50,6 +56,19 @@ func can_afford(stamina_cost: float) -> bool:
 	return current_stamina >= stamina_cost
 
 
+func set_regeneration_enabled(enabled: bool) -> void:
+	regeneration_enabled = enabled
+
+
+func restore_stamina(amount: float) -> float:
+	var before := current_stamina
+	current_stamina = minf(current_stamina + maxf(amount, 0.0), max_stamina)
+	var restored := current_stamina - before
+	if restored > 0.0:
+		stamina_changed.emit(current_stamina, max_stamina)
+	return restored
+
+
 func spend_for_attack(stamina_cost: float) -> bool:
 	if not can_afford(stamina_cost):
 		return false
@@ -60,6 +79,7 @@ func spend_for_attack(stamina_cost: float) -> bool:
 		_consecutive_attack_count = 1
 
 	_time_since_last_attack = 0.0
+	_time_since_regen_block = 0.0
 	current_stamina -= stamina_cost
 
 	if _consecutive_attack_count > attacks_before_max_loss:
@@ -71,3 +91,4 @@ func spend_for_attack(stamina_cost: float) -> bool:
 
 	stamina_changed.emit(current_stamina, max_stamina)
 	return true
+

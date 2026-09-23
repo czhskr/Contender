@@ -1,6 +1,6 @@
-[gd_resource type="Resource" script_class="AttackData" load_steps=2 format=3]
+[gd_resource type="Resource" script_class="AttackData" format=3 uid="uid://chn3e1ovjarjs"]
 
-[ext_resource type="Script" path="res://scripts/attack_data.gd" id="1"]
+[ext_resource type="Script" uid="uid://ca8718iqrfvdk" path="res://scripts/attack_data.gd" id="1"]
 
 [resource]
 script = ExtResource("1")
@@ -9,3 +9,4 @@ startup_time = 0.22
 active_time = 0.11
 recovery_time = 0.36
 stamina_cost = 8.0
+knockdown_damage = 15.0

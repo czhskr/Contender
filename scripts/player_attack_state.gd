@@ -2,6 +2,8 @@ class_name PlayerAttackState
 extends Node
 
 const AttackDataType = preload("res://scripts/attack_data.gd")
+const PlayerStaminaType = preload("res://scripts/player_stamina.gd")
+const ActionSpeedSettingsType = preload("res://scripts/action_speed_settings.gd")
 
 signal state_changed(state: AttackState, attack: int)
 signal attack_rejected(requested_attack: int, current_attack: int)
@@ -13,16 +15,53 @@ enum AttackState {
 	RECOVERY,
 }
 
+const ATTACK_NAMES := [
+	"Left Straight",
+	"Right Straight",
+	"Left Hook",
+	"Right Hook",
+]
+
 @export var attacks: Array[AttackDataType] = []
+@export var player_stamina: PlayerStaminaType
+@export var action_speed_settings: ActionSpeedSettingsType
+@export var hit_stun: Node
+
+@export_group("Debug")
+@export var print_action_speed := true
 
 var current_state := AttackState.IDLE
 var current_attack := -1
 
 var _current_data: AttackDataType
 var _time_remaining := 0.0
+## Snapshot at attack start (before stamina cost). Used for Startup/Recovery only.
+var _action_speed_snapshot := 1.0
+var _scaled_startup := 0.0
+var _scaled_recovery := 0.0
+
+
+func get_action_speed_snapshot() -> float:
+	return _action_speed_snapshot
+
+
+func get_scaled_startup() -> float:
+	return _scaled_startup
+
+
+func get_scaled_recovery() -> float:
+	return _scaled_recovery
+
+
+func get_active_duration() -> float:
+	if _current_data == null:
+		return 0.0
+	return _current_data.active_time
 
 
 func _ready() -> void:
+	if action_speed_settings == null:
+		action_speed_settings = ActionSpeedSettingsType.new()
 	set_process(false)
 
 
@@ -45,26 +84,71 @@ func try_start_attack(attack: int) -> bool:
 		push_error("Attack data is missing for attack type %d." % attack)
 		return false
 
+	## Snapshot before combat_prototype spends stamina cost.
+	var stamina_now := (
+		player_stamina.current_stamina if player_stamina != null else 100.0
+	)
+	_action_speed_snapshot = action_speed_settings.calculate_action_speed(stamina_now)
+	_scaled_startup = action_speed_settings.scale_duration(
+		attack_data.startup_time,
+		_action_speed_snapshot
+	)
+	_scaled_recovery = action_speed_settings.scale_duration(
+		attack_data.recovery_time,
+		_action_speed_snapshot
+	)
+
 	_current_data = attack_data
 	current_attack = attack
 	set_process(true)
-	_enter_state(AttackState.STARTUP, _current_data.startup_time)
+	_enter_state(AttackState.STARTUP, _scaled_startup)
+
+	if print_action_speed:
+		print(
+			"Player %s | Stamina: %.0f | Action Speed: %.2f | Startup: %.2f -> %.2f | Recovery: %.2f -> %.2f"
+			% [
+				ATTACK_NAMES[attack],
+				stamina_now,
+				_action_speed_snapshot,
+				attack_data.startup_time,
+				_scaled_startup,
+				attack_data.recovery_time,
+				_scaled_recovery,
+			]
+		)
 	return true
 
 
 func can_start_attack() -> bool:
+	if hit_stun != null and hit_stun.is_hit_stunned():
+		return false
 	return current_state == AttackState.IDLE
+
+
+func cancel_attack() -> void:
+	if current_state == AttackState.IDLE:
+		return
+
+	current_attack = -1
+	_current_data = null
+	_action_speed_snapshot = 1.0
+	_scaled_startup = 0.0
+	_scaled_recovery = 0.0
+	set_process(false)
+	_enter_state(AttackState.IDLE, 0.0)
 
 
 func _advance_state() -> void:
 	match current_state:
 		AttackState.STARTUP:
+			## Active hit window stays at base duration.
 			_enter_state(AttackState.ACTIVE, _current_data.active_time)
 		AttackState.ACTIVE:
-			_enter_state(AttackState.RECOVERY, _current_data.recovery_time)
+			_enter_state(AttackState.RECOVERY, _scaled_recovery)
 		AttackState.RECOVERY:
 			current_attack = -1
 			_current_data = null
+			_action_speed_snapshot = 1.0
 			set_process(false)
 			_enter_state(AttackState.IDLE, 0.0)
 

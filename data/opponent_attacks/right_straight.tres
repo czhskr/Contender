@@ -1,0 +1,12 @@
+[gd_resource type="Resource" script_class="OpponentAttackData" format=3 uid="uid://r2qabd7j3q0x"]
+
+[ext_resource type="Script" uid="uid://5jhytxe7ly1b" path="res://scripts/opponent_attack_data.gd" id="1"]
+
+[resource]
+script = ExtResource("1")
+attack_type = 1
+side = 1
+startup_time = 0.9
+recovery_time = 0.55
+stamina_cost = 5.0
+knockdown_damage = 10.0

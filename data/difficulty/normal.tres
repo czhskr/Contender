@@ -1,0 +1,7 @@
+[gd_resource type="Resource" script_class="OpponentDifficultySettings" format=3 uid="uid://bmr82bxhbo60n"]
+
+[ext_resource type="Script" uid="uid://lkceupqcshf5" path="res://scripts/opponent_difficulty_settings.gd" id="1"]
+
+[resource]
+script = ExtResource("1")
+aggression = 0.62

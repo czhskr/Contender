@@ -1,10 +1,9 @@
 class_name PlayerCombatInput
 extends Node
 
-signal attack_requested(attack: AttackType, target: TargetArea)
+signal attack_requested(attack: AttackType)
 signal defense_requested(defense: DefenseType)
 signal guard_changed(is_guarding: bool)
-signal target_changed(target: TargetArea)
 
 enum AttackType {
 	LEFT_STRAIGHT,
@@ -16,12 +15,6 @@ enum AttackType {
 enum DefenseType {
 	SLIP_LEFT,
 	SLIP_RIGHT,
-	DUCK,
-}
-
-enum TargetArea {
-	HEAD,
-	BODY,
 }
 
 const LEFT_STRAIGHT := &"combat_left_straight"
@@ -30,11 +23,8 @@ const LEFT_HOOK := &"combat_left_hook"
 const RIGHT_HOOK := &"combat_right_hook"
 const SLIP_LEFT := &"combat_slip_left"
 const SLIP_RIGHT := &"combat_slip_right"
-const DUCK := &"combat_duck"
 const HIGH_GUARD := &"combat_high_guard"
-const TOGGLE_TARGET := &"combat_toggle_target"
 
-var current_target := TargetArea.HEAD
 var is_guarding := false
 
 
@@ -53,11 +43,6 @@ func _unhandled_input(event: InputEvent) -> void:
 	elif event.is_action_pressed(SLIP_RIGHT, false, true):
 		defense_requested.emit(DefenseType.SLIP_RIGHT)
 		_consume_event()
-	elif event.is_action_pressed(DUCK, false, true):
-		defense_requested.emit(DefenseType.DUCK)
-		_consume_event()
-	elif event.is_action_pressed(TOGGLE_TARGET, false, true):
-		_toggle_target()
 	elif event.is_action_pressed(HIGH_GUARD):
 		_set_guarding(true)
 	elif event.is_action_released(HIGH_GUARD):
@@ -65,17 +50,7 @@ func _unhandled_input(event: InputEvent) -> void:
 
 
 func _request_attack(attack: AttackType) -> void:
-	attack_requested.emit(attack, current_target)
-	_consume_event()
-
-
-func _toggle_target() -> void:
-	current_target = (
-		TargetArea.BODY
-		if current_target == TargetArea.HEAD
-		else TargetArea.HEAD
-	)
-	target_changed.emit(current_target)
+	attack_requested.emit(attack)
 	_consume_event()
 
 

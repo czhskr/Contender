@@ -41,14 +41,24 @@
 
 처리: `scripts/player_combat_input.gd` → `PlayerActionState` / `PlayerAttackState`.
 
+### 방어 입력 구조 (`player_combat_input.gd`)
+
+세 경로가 다르며, 하나로 묶인 `DefenseType` 상태가 아니다.
+
+| 동작 | 코드 경로 | 비고 |
+|---|---|---|
+| **Slip Left / Right** | `DefenseType` enum (`SLIP_LEFT` / `SLIP_RIGHT`) → `defense_requested` | enum 값은 Slip만 |
+| **High Guard** | Space **hold** → `is_guarding` + `guard_changed(is_guarding)` | `DefenseType`에 없음 |
+| **(무방비)** | Slip/Guard 미사용 시의 Idle | 별도 defense state / enum 값 **없음** |
+
+AI의 `"NONE"`은 방어를 선택하지 않은 **decision 결과 문자열**이다. `DefenseType`이나 전용 defense state가 아니다.
+
 ### 복구 금지 (제거됨)
 
 다음 입력/시스템은 **의도적으로 제거**되었다. 다시 넣지 말 것.
 
 - **Duck** (`combat_duck` / `DefenseType.DUCK`)
 - **Head / Body Target Toggle** (`combat_toggle_target` 등)
-
-최종 방어: **Slip Left / Slip Right / High Guard / None** 만.
 
 ---
 
@@ -160,7 +170,10 @@ Random KO roll / Just / Counter / Head-Body KO 경로 **없음**.
 ### 정책
 
 - **`ACTIVE_ATTACK_TYPES` = Left/Right Straight only** (Hook 후보에서 제외).
-- 방어: Slip Left / Slip Right / Guard / (실수 시 None).
+- 방어 decision: `"SLIP_LEFT"` / `"SLIP_RIGHT"` / `"GUARD"` / `"NONE"`.  
+  - Slip → `OpponentActionState` Slip 상태  
+  - Guard → `set_guard_held(true)` (hold)  
+  - `"NONE"` → 반응하지 않음 (실수·비선택). **전용 defense state가 아님**.
 - `OpponentAttackState.attack_cooldown` 기본 **0.0**.
 - Offense pacing: Attack → Startup/Active/Recovery → `attack_interval` → 다음 결정.
 - **Follow-up**: Recovery 후 반대손 Straight 시도 (`follow_up_chance` / delay).
@@ -412,12 +425,14 @@ godot --headless --path . --quit-after 2
 
 ## 17. 현재 상태 / Next Work
 
-### Git 상태 (작성 시점)
+### Git 상태
 
-- 브랜치: `main` (remote 추적).
-- **최근 커밋**은 초기 입력/스태미나/방어 단계 (`Implement defense…` 등).
-- **KD Meter 단순화 + Visual Motion 대부분 작업은 워킹 트리에 미커밋** (수정·untracked 다수).  
-  → 새 PC로 옮길 때 **커밋/푸시 또는 전체 파일 동기화**가 필요하다.
+- 브랜치: **`main` @ `73aa87a`** (`docs: update agent handoff`)
+- **`origin/main`과 동기화**, working tree **clean**
+- 전투 단순화(KD Meter) + Visual Motion은 `d5909a2`에 **커밋·푸시 완료**
+- 관련 최근 커밋:
+  - `d5909a2` — `refactor: simplify combat system and improve combat visuals`
+  - `73aa87a` — `docs: update agent handoff`
 
 ### 마지막으로 완료된 작업 (코드 기준)
 
@@ -432,9 +447,8 @@ godot --headless --path . --quit-after 2
 - [ ] **Telegraph** (Opponent 긴 Startup 대비 예고) — 아직 없음. 필요 여부는 플레이 후 결정.
 - [ ] Opponent Startup(0.8/0.9) 단축 여부 — **미결정**. 임의 변경 금지.
 - [ ] Web `export_presets.cfg` 구성.
-- [ ] `assets/README.md` 갱신 (현재 Duck/Head-Body 등 **구 경로 설명이 남아 있음** — stale).
-- [ ] 미커밋 변경분 정리·커밋 (사용자 요청 시).
 - [ ] Title/Result 플로우·메타 진행 강화 (전투 코어 외).
+- [ ] 문서/코드 변경분 커밋은 **사용자 요청 시**만.
 
 ---
 
@@ -443,12 +457,12 @@ godot --headless --path . --quit-after 2
 | 항목 | 상태 |
 |---|---|
 | `player_health.gd` | 없음 (정상) |
-| `assets/README.md` | **구식** — duck/head/body 경로 언급. 실제 에셋은 `p.*` / `o.*` / `bg_*` |
+| `assets/README.md` | 현재 `p.*` / `o.*` / `bg_*` 기준으로 정리됨 |
 | `export_presets.cfg` | 없음 |
 | `project.godot` window size | 미명시 — 코드는 1152×648 가정 |
 | `data/attacks/left_straight.tres`, `opponent left_straight.tres` | 필드 오버라이드 비어 있음 → **스크립트 기본값에 의존** (의도된 값과 일치하는지 변경 시 주의) |
 | Opponent Hook `.tres` | 데이터만 존재, AI 미사용 — 삭제 필수는 아님 |
-| Git | 전투/비주얼 대량 변경 **미커밋** |
+| Git | `main` clean / origin 동기화 (`73aa87a` 기준; 이후 로컬 문서 수정은 커밋 전 확인) |
 | 스모크 | 로컬에서 PASS 이력 있음. 새 환경에서는 Godot 4.7.2로 재실행 권장 |
 
 ---

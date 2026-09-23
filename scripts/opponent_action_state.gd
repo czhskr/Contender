@@ -107,6 +107,7 @@ func try_start_evasion(evasion: OpponentState) -> bool:
 
 
 func set_guard_held(is_held: bool) -> void:
+	## Hold-only. No post-lock after release (AI decision cadence is separate).
 	if hit_stun != null and hit_stun.is_hit_stunned():
 		if not is_held:
 			_guard_held = false

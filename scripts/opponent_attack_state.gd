@@ -44,6 +44,8 @@ var current_attack: AttackDataType
 var combat_enabled := true
 
 var _time_remaining := 0.0
+var _phase_duration := 0.0
+var _action_token := 0
 var _action_speed_snapshot := 1.0
 var _scaled_startup := 0.0
 var _scaled_recovery := 0.0
@@ -89,8 +91,11 @@ func _process(delta: float) -> void:
 		return
 
 	_time_remaining -= delta
+	var token := _action_token
 
 	while _time_remaining <= 0.0 and current_state != AttackState.IDLE:
+		if token != _action_token:
+			return
 		var overflow := -_time_remaining
 		match current_state:
 			AttackState.STARTUP:
@@ -104,9 +109,40 @@ func _process(delta: float) -> void:
 				_enter_state(AttackState.IDLE, attack_cooldown)
 				_ready_gate = true
 		_time_remaining -= overflow
+		token = _action_token
 
 	if current_state == AttackState.IDLE and _time_remaining < 0.0:
 		_time_remaining = 0.0
+
+
+func is_recovering() -> bool:
+	return current_state == AttackState.RECOVERY
+
+
+func get_recovery_progress() -> float:
+	if current_state != AttackState.RECOVERY:
+		return 0.0
+	if _phase_duration <= 0.0:
+		return 1.0
+	return clampf(1.0 - (_time_remaining / _phase_duration), 0.0, 1.0)
+
+
+func get_action_token() -> int:
+	return _action_token
+
+
+## Early exit from Startup/Active/Recovery so AI can chain via cancel window.
+func force_end_for_cancel() -> void:
+	if current_state == AttackState.IDLE:
+		return
+	_action_token += 1
+	current_attack = null
+	_action_speed_snapshot = 1.0
+	_scaled_startup = 0.0
+	_scaled_recovery = 0.0
+	_phase_duration = 0.0
+	_ready_gate = true
+	_enter_state(AttackState.IDLE, 0.0)
 
 
 func set_combat_enabled(enabled: bool) -> void:
@@ -118,9 +154,11 @@ func set_combat_enabled(enabled: bool) -> void:
 
 func cancel_and_disable() -> void:
 	combat_enabled = false
+	_action_token += 1
 	current_attack = null
 	_action_speed_snapshot = 1.0
 	_ready_gate = false
+	_phase_duration = 0.0
 	_enter_state(AttackState.IDLE, 0.0)
 
 
@@ -128,10 +166,12 @@ func cancel_and_disable() -> void:
 func cancel_attack() -> void:
 	if current_state == AttackState.IDLE:
 		return
+	_action_token += 1
 	current_attack = null
 	_action_speed_snapshot = 1.0
 	_scaled_startup = 0.0
 	_scaled_recovery = 0.0
+	_phase_duration = 0.0
 	_ready_gate = true
 	_enter_state(AttackState.IDLE, attack_cooldown)
 
@@ -192,6 +232,7 @@ func try_execute_attack(attack_type: int) -> bool:
 
 	current_attack = attack
 	_ready_gate = false
+	_action_token += 1
 	_enter_state(AttackState.STARTUP, _scaled_startup)
 	attack_started.emit(attack)
 
@@ -223,5 +264,6 @@ func try_execute_attack(attack_type: int) -> bool:
 
 func _enter_state(next_state: AttackState, duration: float) -> void:
 	current_state = next_state
-	_time_remaining = duration
+	_phase_duration = maxf(duration, 0.0)
+	_time_remaining = _phase_duration
 	state_changed.emit(current_state, current_attack)

@@ -35,6 +35,9 @@ var current_attack := -1
 
 var _current_data: AttackDataType
 var _time_remaining := 0.0
+var _phase_duration := 0.0
+## Bumped on every cancel / phase enter so stale overflow cannot revive a finished attack.
+var _action_token := 0
 ## Snapshot at attack start (before stamina cost). Used for Startup/Recovery only.
 var _action_speed_snapshot := 1.0
 var _scaled_startup := 0.0
@@ -100,6 +103,7 @@ func try_start_attack(attack: int) -> bool:
 
 	_current_data = attack_data
 	current_attack = attack
+	_action_token += 1
 	set_process(true)
 	_enter_state(AttackState.STARTUP, _scaled_startup)
 
@@ -125,27 +129,58 @@ func can_start_attack() -> bool:
 	return current_state == AttackState.IDLE
 
 
+func is_recovering() -> bool:
+	return current_state == AttackState.RECOVERY
+
+
+func get_recovery_progress() -> float:
+	if current_state != AttackState.RECOVERY:
+		return 0.0
+	if _phase_duration <= 0.0:
+		return 1.0
+	return clampf(1.0 - (_time_remaining / _phase_duration), 0.0, 1.0)
+
+
+func get_action_token() -> int:
+	return _action_token
+
+
+## Ends Startup/Active/Recovery cleanly so a buffered next action can start.
+## Recovery itself is not deleted — this is an early exit at cancel time.
+func force_end_for_cancel() -> void:
+	cancel_attack()
+
+
 func cancel_attack() -> void:
 	if current_state == AttackState.IDLE:
 		return
 
+	_action_token += 1
 	current_attack = -1
 	_current_data = null
 	_action_speed_snapshot = 1.0
 	_scaled_startup = 0.0
 	_scaled_recovery = 0.0
+	_phase_duration = 0.0
 	set_process(false)
 	_enter_state(AttackState.IDLE, 0.0)
 
 
 func _advance_state() -> void:
+	var token := _action_token
 	match current_state:
 		AttackState.STARTUP:
+			if token != _action_token or _current_data == null:
+				return
 			## Active hit window stays at base duration.
 			_enter_state(AttackState.ACTIVE, _current_data.active_time)
 		AttackState.ACTIVE:
+			if token != _action_token:
+				return
 			_enter_state(AttackState.RECOVERY, _scaled_recovery)
 		AttackState.RECOVERY:
+			if token != _action_token:
+				return
 			current_attack = -1
 			_current_data = null
 			_action_speed_snapshot = 1.0
@@ -155,7 +190,8 @@ func _advance_state() -> void:
 
 func _enter_state(next_state: AttackState, duration: float) -> void:
 	current_state = next_state
-	_time_remaining = duration
+	_phase_duration = maxf(duration, 0.0)
+	_time_remaining = _phase_duration
 	state_changed.emit(current_state, current_attack)
 
 

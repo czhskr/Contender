@@ -283,13 +283,13 @@ Screen shake / POV / parallax가 HUD·KD·Stamina 바를 흔들지 않게 하기
 ### Player Slip POV (`PlayerVisual`)
 
 - 별도 Slip 스프라이트 없음. `pov_offset` 이동.
-- 기본: `slip_pov_x = 42`, `slip_pov_y = 14`, tween `0.10s`.
-- Left: `(-42, +14)` / Right: `(+42, +14)` — **절대 목표** (누적 drift 방지).
+- 기본: `slip_pov_x = 90`, `slip_pov_y = 24`, tween `0.10s`.
+- Left: `(-90, +24)` / Right: `(+90, +24)` — **절대 목표** (누적 drift 방지).
 
 ### World Parallax (`CombatVisualRoot` → BG + Opponent)
 
 - Player Slip Left → World **+X** / Slip Right → World **-X**.
-- Crowd **6** / Ring **14** / Opponent **24** px. tween `0.10s`.
+- Crowd **10** / Ring **24** / Opponent **48** px. tween `0.10s`.
 - Opponent는 `parallax_offset` additive.
 
 ### Hit Shake (`CombatVisualRoot`만)
@@ -298,16 +298,22 @@ Screen shake / POV / parallax가 HUD·KD·Stamina 바를 흔들지 않게 하기
 - Player HIT(플레이어가 맞음): strength **7** / **0.15s**.
 - BLOCK / EVADE / Knockdown: shake 없음 (다운 시 clear).
 
+### Knockdown Impact Shake (sprite-local, not screen)
+
+- Opponent: entry-only vertical jolt (`knockdown_impact_shake_y` **10** / count **3** / **0.18s**) then settle on drop **70px**.
+- Player POV: 동일 개념, 더 작게 (`y` **6**). Count 중 반복 없음.
+
 ### Additive compose
 
-- Player: `base + breathing + action + pov + knockdown`
-- Opponent: `base + breathing + action + parallax + knockdown`
+- Player: `base + breathing + action + pov + knockdown + knockdown_impact`
+- Opponent: `base + breathing + action + parallax + knockdown + knockdown_impact`
 - Root: `base + shake`
-- Tween 분리: `_breathing_tween`, `_pov_tween`, `_parallax_tween`, `_shake_tween`
+- Tween 분리: `_breathing_tween`, `_pov_tween`, `_parallax_tween`, `_shake_tween`, `_knockdown_impact_tween`
 
 ### 아직 구현되지 않음 (완료라고 쓰지 말 것)
 
 - Telegraph / 공격 예고 연출
+- Knockdown Finisher Slow Motion (아래 Next Work)
 - 신규 전투 시스템, 별도 Damage/HP, Counter/Target 부활
 - Web export preset
 
@@ -445,6 +451,9 @@ godot --headless --path . --quit-after 2
 ### Next Work / TODO (미구현 — 완료와 섞지 말 것)
 
 - [ ] **Telegraph** (Opponent 긴 Startup 대비 예고) — 아직 없음. 필요 여부는 플레이 후 결정.
+- [ ] **Knockdown Finisher Slow Motion** — KD Meter를 100 이상으로 만든 **결정타**에만 짧은 Slow Motion → 이후 Knockdown transition.  
+  일반 HIT에는 적용하지 않음.  
+  **구현 전 필수**: `Engine.time_scale`이 Hit Stun / Attack phase / Action Buffer / AI timing / Round timer / Knockdown Count / Visual Tween에 미치는 영향을 분리 검토. gameplay timer와 visual timer를 섞지 말 것. **지금 구현하지 말 것.**
 - [ ] Opponent Startup(0.8/0.9) 단축 여부 — **미결정**. 임의 변경 금지.
 - [ ] Web `export_presets.cfg` 구성.
 - [ ] Title/Result 플로우·메타 진행 강화 (전투 코어 외).

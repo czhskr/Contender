@@ -29,6 +29,7 @@ const DEFENSE_RESULT_NAMES := ["HIT", "BLOCK", "EVADE"]
 @onready var attack_state: Node = $PlayerAttackState
 @onready var stamina: Node = $PlayerStamina
 @onready var player_state: Node = $PlayerActionState
+@onready var action_buffer: Node = $PlayerActionBuffer
 @onready var opponent_stamina: Node = $OpponentStamina
 @onready var player_knockdown_meter: Node = $PlayerKnockdownMeter
 @onready var opponent_knockdown_meter: Node = $OpponentKnockdownMeter
@@ -95,6 +96,8 @@ func _ready() -> void:
 	round_manager.decision_required.connect(_on_decision_required)
 	match_decision.hud_text_changed.connect(_on_score_hud_text_changed)
 	match_decision.match_result_ready.connect(_on_match_result_ready)
+	if player_hit_stun != null and player_hit_stun.has_signal("hit_stun_started"):
+		player_hit_stun.hit_stun_started.connect(_on_player_hit_stun_started)
 
 	_on_guard_changed(combat_input.is_guarding)
 	_on_attack_state_changed(attack_state.current_state, attack_state.current_attack)
@@ -116,6 +119,16 @@ func _ready() -> void:
 	_on_score_hud_text_changed("--")
 
 
+func _process(_delta: float) -> void:
+	if not _can_accept_combat_input():
+		_clear_action_buffer()
+		return
+	if player_hit_stun != null and player_hit_stun.is_hit_stunned():
+		_clear_action_buffer()
+		return
+	_try_resolve_buffered_actions()
+
+
 func _can_accept_combat_input() -> bool:
 	return (
 		knockdown_manager.can_accept_combat_input()
@@ -123,22 +136,131 @@ func _can_accept_combat_input() -> bool:
 	)
 
 
+func _clear_action_buffer() -> void:
+	if action_buffer != null and action_buffer.has_method("clear"):
+		action_buffer.clear()
+
+
+func _on_player_hit_stun_started(_duration: float) -> void:
+	_clear_action_buffer()
+
+
 func _on_attack_requested(attack: int) -> void:
 	if not _can_accept_combat_input():
 		last_input_value.text = "Blocked: match not fighting"
+		_clear_action_buffer()
 		return
 
-	if not player_state.can_attack():
-		last_input_value.text = "Blocked: %s (player: %s)" % [
-			ATTACK_NAMES[attack],
-			PLAYER_STATE_NAMES[player_state.current_state],
-		]
+	if player_hit_stun != null and player_hit_stun.is_hit_stunned():
+		last_input_value.text = "Blocked: hit stun"
+		_clear_action_buffer()
 		return
+
+	## Space already up but GUARD state lagging — drop hold with no recovery wait.
+	_sync_guard_release_if_needed()
+
+	if _try_execute_player_attack(attack):
+		return
+
+	if _can_buffer_combat_action():
+		action_buffer.buffer_attack(attack)
+		last_input_value.text = "Buffered: %s" % ATTACK_NAMES[attack]
+		return
+
+	last_input_value.text = "Blocked: %s (player: %s)" % [
+		ATTACK_NAMES[attack],
+		PLAYER_STATE_NAMES[player_state.current_state],
+	]
+
+
+func _on_defense_requested(defense: int) -> void:
+	if not _can_accept_combat_input():
+		last_input_value.text = "Blocked: match not fighting"
+		_clear_action_buffer()
+		return
+
+	if player_hit_stun != null and player_hit_stun.is_hit_stunned():
+		last_input_value.text = "Blocked: hit stun"
+		_clear_action_buffer()
+		return
+
+	_sync_guard_release_if_needed()
+
+	if player_state.try_start_evasion(defense):
+		_clear_action_buffer()
+		last_input_value.text = "Accepted: %s" % DEFENSE_NAMES[defense]
+		return
+
+	if _can_buffer_combat_action():
+		if defense == combat_input.DefenseType.SLIP_LEFT:
+			action_buffer.buffer_slip_left()
+		else:
+			action_buffer.buffer_slip_right()
+		last_input_value.text = "Buffered: %s" % DEFENSE_NAMES[defense]
+		return
+
+	last_input_value.text = "Blocked: %s (player: %s)" % [
+		DEFENSE_NAMES[defense],
+		PLAYER_STATE_NAMES[player_state.current_state],
+	]
+
+
+func _sync_guard_release_if_needed() -> void:
+	## Guard has no recovery: once Space is up, leave GUARD immediately.
+	if combat_input != null and combat_input.is_guarding:
+		return
+	if player_state != null and player_state.is_guarding():
+		player_state.set_guard_held(false)
+		_update_guard_debug()
+
+
+func _on_guard_changed(is_guarding: bool) -> void:
+	if not is_guarding:
+		## Space released — never let a stale buffered guard fire later.
+		if action_buffer != null and action_buffer.has_method("clear_guard"):
+			action_buffer.clear_guard()
+
+	if not _can_accept_combat_input():
+		return
+
+	if player_hit_stun != null and player_hit_stun.is_hit_stunned():
+		player_state.set_guard_held(false)
+		_update_guard_debug()
+		return
+
+	if is_guarding and not player_state.can_attack() and _can_buffer_combat_action():
+		## Busy — keep hold intent and buffer for early recovery/slip cancel.
+		player_state.set_guard_held(true)
+		action_buffer.buffer_guard()
+		_update_guard_debug()
+		last_input_value.text = "High guard input: PRESSED (buffered)"
+		return
+
+	player_state.set_guard_held(is_guarding)
+	if is_guarding:
+		_clear_action_buffer()
+	_update_guard_debug()
+	last_input_value.text = "High guard input: %s" % (
+		"PRESSED" if is_guarding else "RELEASED"
+	)
+
+
+func _can_buffer_combat_action() -> bool:
+	if attack_state.current_state != attack_state.AttackState.IDLE:
+		return true
+	if player_state.is_evading():
+		return true
+	return false
+
+
+func _try_execute_player_attack(attack: int) -> bool:
+	if not player_state.can_attack():
+		return false
 
 	var attack_data = attack_state.get_attack_data(attack)
 	if attack_data == null:
 		last_input_value.text = "Missing attack data: %s" % ATTACK_NAMES[attack]
-		return
+		return false
 
 	if not stamina.can_afford(attack_data.stamina_cost):
 		last_input_value.text = "Insufficient stamina: %s (%.1f / %.1f)" % [
@@ -146,36 +268,91 @@ func _on_attack_requested(attack: int) -> void:
 			stamina.current_stamina,
 			attack_data.stamina_cost,
 		]
-		return
+		return false
 
 	if attack_state.try_start_attack(attack):
 		stamina.spend_for_attack(attack_data.stamina_cost)
+		_clear_action_buffer()
 		last_input_value.text = "Accepted: %s" % ATTACK_NAMES[attack]
+		return true
+	return false
 
 
-func _on_defense_requested(defense: int) -> void:
-	if not _can_accept_combat_input():
-		last_input_value.text = "Blocked: match not fighting"
+func _try_resolve_buffered_actions() -> void:
+	if action_buffer != null and action_buffer.has_buffered():
+		match action_buffer.kind:
+			action_buffer.Kind.ATTACK:
+				if not _can_cancel_into_attack():
+					return
+				var attack: int = action_buffer.attack_index
+				_unlock_current_action_for_cancel()
+				if not _try_execute_player_attack(attack):
+					## Affordability failed or still blocked — drop buffer.
+					_clear_action_buffer()
+			action_buffer.Kind.SLIP_LEFT, action_buffer.Kind.SLIP_RIGHT:
+				if not _can_cancel_into_slip():
+					return
+				var defense: int = combat_input.DefenseType.SLIP_LEFT
+				if action_buffer.kind == action_buffer.Kind.SLIP_RIGHT:
+					defense = combat_input.DefenseType.SLIP_RIGHT
+				_unlock_current_action_for_cancel()
+				if player_state.try_start_evasion(defense):
+					_clear_action_buffer()
+					last_input_value.text = "Cancel -> %s" % DEFENSE_NAMES[defense]
+				else:
+					_clear_action_buffer()
+			action_buffer.Kind.GUARD:
+				if not combat_input.is_guarding:
+					action_buffer.clear_guard()
+					return
+				if not _can_cancel_into_guard():
+					return
+				_unlock_current_action_for_cancel()
+				player_state.set_guard_held(true)
+				_clear_action_buffer()
+				_update_guard_debug()
+				last_input_value.text = "Cancel -> High Guard"
+			_:
+				pass
 		return
 
-	if player_state.try_start_evasion(defense):
-		last_input_value.text = "Accepted: %s" % DEFENSE_NAMES[defense]
-	else:
-		last_input_value.text = "Blocked: %s (player: %s)" % [
-			DEFENSE_NAMES[defense],
-			PLAYER_STATE_NAMES[player_state.current_state],
-		]
+	## No buffered attack/slip — Space still held can early-cancel into guard.
+	if combat_input.is_guarding and _can_cancel_into_guard():
+		_unlock_current_action_for_cancel()
+		player_state.set_guard_held(true)
+		_update_guard_debug()
+		last_input_value.text = "Cancel -> High Guard"
 
 
-func _on_guard_changed(is_guarding: bool) -> void:
-	if not _can_accept_combat_input():
-		return
+func _unlock_current_action_for_cancel() -> void:
+	if attack_state.current_state != attack_state.AttackState.IDLE:
+		attack_state.force_end_for_cancel()
+	if player_state.has_method("unlock_for_next_action"):
+		player_state.unlock_for_next_action()
 
-	player_state.set_guard_held(is_guarding)
-	_update_guard_debug()
-	last_input_value.text = "High guard input: %s" % (
-		"PRESSED" if is_guarding else "RELEASED"
-	)
+
+func _can_cancel_into_attack() -> bool:
+	if attack_state.is_recovering():
+		return attack_state.get_recovery_progress() >= action_buffer.attack_to_attack
+	if player_state.is_evading():
+		return player_state.get_slip_progress() >= action_buffer.slip_to_attack
+	return false
+
+
+func _can_cancel_into_slip() -> bool:
+	if attack_state.is_recovering():
+		return attack_state.get_recovery_progress() >= action_buffer.attack_to_slip
+	if player_state.is_evading():
+		return player_state.get_slip_progress() >= action_buffer.slip_to_slip
+	return false
+
+
+func _can_cancel_into_guard() -> bool:
+	if attack_state.is_recovering():
+		return attack_state.get_recovery_progress() >= action_buffer.attack_to_guard
+	if player_state.is_evading():
+		return player_state.get_slip_progress() >= action_buffer.slip_to_guard
+	return false
 
 
 func _on_attack_state_changed(state: int, attack: int) -> void:
@@ -313,6 +490,7 @@ func _on_player_attack_hit(
 
 
 func _apply_player_hit_reaction(was_knockdown: bool) -> void:
+	_clear_action_buffer()
 	if attack_state != null:
 		attack_state.cancel_attack()
 	if player_state != null:

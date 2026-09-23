@@ -29,6 +29,15 @@ var is_guarding := false
 
 
 func _unhandled_input(event: InputEvent) -> void:
+	## Guard release first so same-frame Attack/Slip after Space-up is not blocked.
+	if event.is_action_released(HIGH_GUARD):
+		_set_guarding(false)
+		return
+
+	if event.is_action_pressed(HIGH_GUARD):
+		_set_guarding(true)
+		return
+
 	if event.is_action_pressed(LEFT_HOOK, false, true):
 		_request_attack(AttackType.LEFT_HOOK)
 	elif event.is_action_pressed(RIGHT_HOOK, false, true):
@@ -43,10 +52,6 @@ func _unhandled_input(event: InputEvent) -> void:
 	elif event.is_action_pressed(SLIP_RIGHT, false, true):
 		defense_requested.emit(DefenseType.SLIP_RIGHT)
 		_consume_event()
-	elif event.is_action_pressed(HIGH_GUARD):
-		_set_guarding(true)
-	elif event.is_action_released(HIGH_GUARD):
-		_set_guarding(false)
 
 
 func _request_attack(attack: AttackType) -> void:

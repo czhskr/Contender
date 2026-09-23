@@ -57,6 +57,10 @@ var _guard_held := false
 var _phase_time_remaining := 0.0
 var _evade_window_remaining := 0.0
 var _post_evade_lock_remaining := 0.0
+var _slip_total_duration := 0.0
+var _slip_elapsed := 0.0
+## Bumped when evasion is cancelled early so stale phase timers cannot finish later.
+var _evasion_token := 0
 
 
 func _ready() -> void:
@@ -71,11 +75,17 @@ func _ready() -> void:
 
 
 func _process(delta: float) -> void:
+	if is_evading():
+		_slip_elapsed += delta
+
 	_phase_time_remaining -= delta
+	var token := _evasion_token
 
 	if current_evasion_phase == EvasionPhase.EVADING:
 		_evade_window_remaining -= delta
 		if _evade_window_remaining <= 0.0:
+			if token != _evasion_token:
+				return
 			if _post_evade_lock_remaining > 0.0:
 				## Evade window closed; remaining time is locked but not evade-valid.
 				_enter_evasion_phase(EvasionPhase.RECOVERY, _post_evade_lock_remaining)
@@ -84,6 +94,8 @@ func _process(delta: float) -> void:
 		return
 
 	if current_evasion_phase == EvasionPhase.RECOVERY and _phase_time_remaining <= 0.0:
+		if token != _evasion_token:
+			return
 		_finish_evasion()
 
 
@@ -110,8 +122,11 @@ func try_start_evasion(evasion: int) -> bool:
 	var action_speed := action_speed_settings.calculate_action_speed(stamina_now)
 	var total_lock := action_speed_settings.scale_duration(base_window, action_speed)
 	## Evade-valid window stays at base; fatigue only extends post-window lockout.
+	_evasion_token += 1
 	_evade_window_remaining = base_window
 	_post_evade_lock_remaining = maxf(total_lock - base_window, 0.0)
+	_slip_total_duration = total_lock
+	_slip_elapsed = 0.0
 
 	_enter_state(next_state)
 	_enter_evasion_phase(EvasionPhase.EVADING, base_window)
@@ -132,6 +147,8 @@ func try_start_evasion(evasion: int) -> bool:
 
 
 func set_guard_held(is_held: bool) -> void:
+	## High Guard is a pure hold: ON while held, OFF immediately on release.
+	## No Guard recovery / post-lock — IDLE is actionable the same frame.
 	if hit_stun != null and hit_stun.is_hit_stunned():
 		if not is_held:
 			_guard_held = false
@@ -165,12 +182,49 @@ func is_guarding() -> bool:
 	return current_state == PlayerState.GUARD
 
 
+func is_guard_held() -> bool:
+	return _guard_held
+
+
+func get_slip_progress() -> float:
+	if not is_evading():
+		return 0.0
+	if _slip_total_duration <= 0.0:
+		return 1.0
+	return clampf(_slip_elapsed / _slip_total_duration, 0.0, 1.0)
+
+
+## Ends slip timers / evade window immediately. Leaves IDLE without applying GUARD,
+## so a cancel-into attack/slip/guard can own the next state. Keeps _guard_held.
+func unlock_for_next_action() -> void:
+	_evasion_token += 1
+	current_evasion_phase = EvasionPhase.NONE
+	_phase_time_remaining = 0.0
+	_evade_window_remaining = 0.0
+	_post_evade_lock_remaining = 0.0
+	_slip_total_duration = 0.0
+	_slip_elapsed = 0.0
+	set_process(false)
+	if current_state != PlayerState.IDLE:
+		var previous := current_state
+		current_state = PlayerState.IDLE
+		state_changed.emit(current_state)
+		if print_state_changes:
+			print(
+				"[PlayerState] %s -> %s (cancel unlock)"
+				% [STATE_NAMES[previous], STATE_NAMES[current_state]]
+			)
+
+
 func force_reset_to_idle() -> void:
+	_evasion_token += 1
 	_guard_held = false
 	current_evasion_phase = EvasionPhase.NONE
 	_phase_time_remaining = 0.0
 	_evade_window_remaining = 0.0
 	_post_evade_lock_remaining = 0.0
+	_slip_total_duration = 0.0
+	_slip_elapsed = 0.0
 	set_process(false)
 	if current_state != PlayerState.IDLE:
 		_enter_state(PlayerState.IDLE)
@@ -188,6 +242,8 @@ func _finish_evasion() -> void:
 	current_evasion_phase = EvasionPhase.NONE
 	_evade_window_remaining = 0.0
 	_post_evade_lock_remaining = 0.0
+	_slip_total_duration = 0.0
+	_slip_elapsed = 0.0
 	set_process(false)
 	evasion_phase_changed.emit(current_state, current_evasion_phase)
 	_finish_locked_action()

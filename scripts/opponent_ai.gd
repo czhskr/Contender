@@ -35,6 +35,10 @@ signal difficulty_changed(settings: DifficultyType)
 @export var round_manager: RoundManagerType
 @export var opponent_hit_stun: Node
 
+@export_group("Recovery Cancel")
+## Attack → Attack cancel progress on Recovery (same principle as player).
+@export_range(0.0, 1.0, 0.01) var attack_to_attack_cancel := 0.50
+
 @export_group("Debug")
 @export var print_ai_decisions := false
 
@@ -186,7 +190,7 @@ func _apply_defense(choice: String, is_mistake: bool) -> void:
 
 
 func _try_offense() -> void:
-	if not opponent_attack_state.is_ready_for_command():
+	if not _ensure_offense_ready():
 		_offense_cooldown = READY_POLL
 		return
 	if opponent_action_state != null:
@@ -243,6 +247,28 @@ func _try_offense() -> void:
 			_offense_cooldown = READY_POLL
 	else:
 		_roll_offense_cooldown(false)
+
+
+## Ready in IDLE, or Recovery past cancel threshold (force-end then ready).
+func _ensure_offense_ready() -> bool:
+	if opponent_hit_stun != null and opponent_hit_stun.is_hit_stunned():
+		return false
+	if opponent_attack_state.is_ready_for_command():
+		return true
+	if not _can_recovery_cancel_offense():
+		return false
+	opponent_attack_state.force_end_for_cancel()
+	return opponent_attack_state.is_ready_for_command()
+
+
+func _can_recovery_cancel_offense() -> bool:
+	if opponent_attack_state == null:
+		return false
+	if not opponent_attack_state.has_method("is_recovering"):
+		return false
+	if not opponent_attack_state.is_recovering():
+		return false
+	return opponent_attack_state.get_recovery_progress() >= attack_to_attack_cancel
 
 
 func _execute_follow_up() -> void:

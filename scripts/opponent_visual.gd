@@ -58,6 +58,14 @@ var parallax_offset := Vector2.ZERO
 @export var hit_hold_seconds := 0.22
 ## Visual-only punch pose length. Independent of AttackState Recovery timing.
 @export_range(0.0, 2.0, 0.01, "or_greater") var attack_pose_hold_seconds := 0.20
+## Set by CombatVisualRoot on EVADE (additive; cleared when pose ends).
+var _evade_passby_offset := Vector2.ZERO
+
+@export_group("Knockdown Impact Shake")
+## Visual-only vertical jolt on OpponentSprite (not screen / HUD shake).
+@export_range(0.0, 64.0, 0.5, "or_greater") var knockdown_impact_shake_y := 10.0
+@export_range(1, 8, 1) var knockdown_impact_shake_count := 3
+@export_range(0.01, 1.0, 0.01, "or_greater") var knockdown_impact_shake_duration := 0.18
 
 @export_group("Debug")
 @export var show_visual_debug := false
@@ -70,13 +78,16 @@ var _debug_label: Label
 var _priority := Priority.IDLE
 var _action_effect_offset := Vector2.ZERO
 var _knockdown_offset := Vector2.ZERO
+var _knockdown_impact_offset := Vector2.ZERO
 var _locked_final_ko := false
 var _hit_release_token := 0
 ## Invalidates in-flight attack pose timers (new ACTIVE / HIT / KNOCKDOWN).
 var _attack_pose_token := 0
 var _attack_pose_holding := false
+var _knockdown_impact_token := 0
 
 var _breathing_tween: Tween
+var _knockdown_impact_tween: Tween
 var _breathing_active := false
 
 
@@ -214,28 +225,48 @@ func _on_opponent_attack_resolved(
 	_player_meter: float,
 	_was_knockdown: bool
 ) -> void:
+	## EVADE presentation is orchestrated by CombatVisualRoot (pass-by + slip hold).
 	pass
+
+
+## Visual-only: shift Straight further along slip-away axis so glove clears face center.
+func apply_evade_passby(world_dir: float, amount: float) -> void:
+	_evade_passby_offset = Vector2(amount * world_dir, 0.0)
+	_action_effect_offset = _evade_passby_offset
+	_apply_composed_transform()
+
+
+func clear_evade_passby() -> void:
+	_evade_passby_offset = Vector2.ZERO
+	if _action_effect_offset != Vector2.ZERO:
+		_action_effect_offset = Vector2.ZERO
+		_apply_composed_transform()
 
 
 func _on_match_state_changed(state: int) -> void:
 	if state == KnockdownManagerType.MatchState.OPPONENT_DOWN:
 		_cancel_attack_pose_hold()
 		_stop_breathing()
+		clear_evade_passby()
 		_set_priority(Priority.KNOCKDOWN)
 		_action_effect_offset = Vector2.ZERO
 		_knockdown_offset = Vector2(0.0, knockdown_drop_distance)
 		_show_pose("KNOCKDOWN", texture_hit)
+		_play_knockdown_impact_shake()
 	elif state == KnockdownManagerType.MatchState.FINAL_KO:
 		if knockdown_manager.downed_side == KnockdownManagerType.DownedSide.OPPONENT:
 			_locked_final_ko = true
 			_cancel_attack_pose_hold()
 			_stop_breathing()
+			clear_evade_passby()
 			_set_priority(Priority.KNOCKDOWN)
 			_action_effect_offset = Vector2.ZERO
 			_knockdown_offset = Vector2(0.0, knockdown_drop_distance)
+			## Entry shake already played on OPPONENT_DOWN — do not repeat during count/KO.
 			_show_pose("KO", texture_hit)
 	elif state == KnockdownManagerType.MatchState.FIGHTING:
 		if not _locked_final_ko and _priority == Priority.KNOCKDOWN:
+			_clear_knockdown_impact()
 			_knockdown_offset = Vector2.ZERO
 			_action_effect_offset = Vector2.ZERO
 			_show_idle()
@@ -246,6 +277,7 @@ func _on_recovered(downed_side: int, _at_count: int) -> void:
 		return
 	if _locked_final_ko:
 		return
+	_clear_knockdown_impact()
 	_knockdown_offset = Vector2.ZERO
 	_action_effect_offset = Vector2.ZERO
 	_show_idle()
@@ -292,7 +324,11 @@ func _release_attack_pose_to_stance() -> void:
 
 
 func _show_attack(attack_type: int) -> void:
-	_action_effect_offset = Vector2.ZERO
+	## Keep any in-flight evade pass-by; CombatVisualRoot sets it right after ACTIVE.
+	if _evade_passby_offset == Vector2.ZERO:
+		_action_effect_offset = Vector2.ZERO
+	else:
+		_action_effect_offset = _evade_passby_offset
 	match attack_type:
 		AttackDataType.AttackType.LEFT_STRAIGHT:
 			_show_pose("LEFT_STRAIGHT", texture_left_straight)
@@ -310,6 +346,7 @@ func _show_idle() -> void:
 	if _locked_final_ko:
 		return
 	_set_priority(Priority.IDLE)
+	_evade_passby_offset = Vector2.ZERO
 	_action_effect_offset = Vector2.ZERO
 	_show_pose("IDLE", texture_idle)
 	_start_breathing()
@@ -332,7 +369,7 @@ func _show_pose(state_name: String, texture_path: String) -> void:
 func _apply_composed_transform() -> void:
 	if _anchor == null:
 		return
-	## final = base + breathing + action + parallax + knockdown (shake on root).
+	## final = base + breathing + action + parallax + knockdown drop + impact shake
 	_anchor.rotation_degrees = 0.0
 	_anchor.position = (
 		asset_base_position
@@ -340,10 +377,69 @@ func _apply_composed_transform() -> void:
 		+ _action_effect_offset
 		+ parallax_offset
 		+ _knockdown_offset
+		+ _knockdown_impact_offset
 	)
 	if _sprite != null:
 		_sprite.scale = Vector2(opponent_display_scale, opponent_display_scale)
 		_sprite.rotation_degrees = 0.0
+
+
+func _play_knockdown_impact_shake() -> void:
+	## One-shot on knockdown entry only. Count loop must not re-trigger this.
+	_knockdown_impact_token += 1
+	var token := _knockdown_impact_token
+	if _knockdown_impact_tween != null and _knockdown_impact_tween.is_valid():
+		_knockdown_impact_tween.kill()
+	_knockdown_impact_tween = null
+	_knockdown_impact_offset = Vector2.ZERO
+	_apply_composed_transform()
+
+	if knockdown_impact_shake_y <= 0.0 or knockdown_impact_shake_duration <= 0.0:
+		return
+	var steps := maxi(knockdown_impact_shake_count, 1)
+	var step_dur := maxf(knockdown_impact_shake_duration / float(steps), 0.01)
+	_knockdown_impact_tween = create_tween()
+	for i in range(steps):
+		var mag := knockdown_impact_shake_y * (1.0 - float(i) / float(steps))
+		var sign := 1.0 if (i % 2) == 0 else -1.0
+		var peak := Vector2(0.0, mag * sign)
+		var captured := peak
+		_knockdown_impact_tween.tween_method(
+			func(v: Vector2) -> void:
+				if token != _knockdown_impact_token:
+					return
+				_knockdown_impact_offset = v
+				_apply_composed_transform(),
+			Vector2.ZERO,
+			captured,
+			step_dur * 0.45
+		)
+		_knockdown_impact_tween.tween_method(
+			func(v: Vector2) -> void:
+				if token != _knockdown_impact_token:
+					return
+				_knockdown_impact_offset = v
+				_apply_composed_transform(),
+			captured,
+			Vector2.ZERO,
+			step_dur * 0.55
+		)
+	_knockdown_impact_tween.finished.connect(
+		func() -> void:
+			if token == _knockdown_impact_token:
+				_knockdown_impact_offset = Vector2.ZERO
+				_apply_composed_transform()
+	)
+
+
+func _clear_knockdown_impact() -> void:
+	_knockdown_impact_token += 1
+	if _knockdown_impact_tween != null and _knockdown_impact_tween.is_valid():
+		_knockdown_impact_tween.kill()
+	_knockdown_impact_tween = null
+	if _knockdown_impact_offset != Vector2.ZERO:
+		_knockdown_impact_offset = Vector2.ZERO
+		_apply_composed_transform()
 
 
 func _start_breathing() -> void:

@@ -38,6 +38,7 @@
 [ext_resource type="Script" uid="uid://dirm3tnty7hxy" path="res://scripts/opponent_visual.gd" id="42_opponent_visual"]
 [ext_resource type="Script" uid="uid://dcq82waec1kv3" path="res://scripts/hit_resolve_coordinator.gd" id="43_hit_resolve"]
 [ext_resource type="Script" uid="uid://dpd4ncdeqqglc" path="res://scripts/knockdown_meter.gd" id="44_kd_meter"]
+[ext_resource type="Script" path="res://scripts/player_action_buffer.gd" id="45_action_buffer"]
 
 [node name="CombatPrototype" type="Node" unique_id=824776855]
 script = ExtResource("1_prototype")
@@ -71,6 +72,9 @@ knockdown_manager = NodePath("../../KnockdownManager")
 
 [node name="PlayerCombatInput" type="Node" parent="." unique_id=546747862]
 script = ExtResource("2_input")
+
+[node name="PlayerActionBuffer" type="Node" parent="."]
+script = ExtResource("45_action_buffer")
 
 [node name="PlayerHitStun" type="Node" parent="." unique_id=2021746707]
 script = ExtResource("37_hit_stun")

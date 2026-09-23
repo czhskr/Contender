@@ -21,9 +21,9 @@ const KnockdownManagerType = preload("res://scripts/knockdown_manager.gd")
 
 @export_group("World Parallax (Slip)")
 ## Closer layers move more. Slip Left → world +X; Slip Right → world -X.
-@export_range(0.0, 200.0, 1.0, "or_greater") var parallax_crowd_x := 6.0
-@export_range(0.0, 200.0, 1.0, "or_greater") var parallax_ring_x := 14.0
-@export_range(0.0, 200.0, 1.0, "or_greater") var parallax_opponent_x := 24.0
+@export_range(0.0, 200.0, 1.0, "or_greater") var parallax_crowd_x := 10.0
+@export_range(0.0, 200.0, 1.0, "or_greater") var parallax_ring_x := 24.0
+@export_range(0.0, 200.0, 1.0, "or_greater") var parallax_opponent_x := 48.0
 @export_range(0.01, 1.0, 0.01, "or_greater") var parallax_tween_seconds := 0.10
 
 @export_group("Hit Shake")
@@ -32,12 +32,26 @@ const KnockdownManagerType = preload("res://scripts/knockdown_manager.gd")
 @export_range(0.0, 64.0, 0.5, "or_greater") var player_hit_shake_strength := 7.0
 @export_range(0.01, 1.0, 0.01, "or_greater") var player_hit_shake_duration := 0.15
 
+@export_group("Evade Visual (does not change gameplay evade window)")
+## Keep Slip POV/parallax through opponent attack pose so EVADE doesn't look like a face-hit.
+@export_range(0.0, 2.0, 0.01, "or_greater") var evade_visual_hold_seconds := 0.20
+## Extra lateral shift on opponent punch when EVADE succeeds (visual-only).
+@export_range(0.0, 400.0, 1.0, "or_greater") var evade_passby_offset_x := 130.0
+
 var base_position := Vector2.ZERO
 var shake_offset := Vector2.ZERO
 
 var _parallax_tween: Tween
 var _shake_tween: Tween
 var _shake_token := 0
+## Invalidates in-flight world parallax tweens (slip cancel / chain).
+var _parallax_token := 0
+## After EVADE: hold slip-direction visuals until punch pose ends.
+var _evade_hold_active := false
+var _evade_hold_token := 0
+## +1 = Slip Left world, -1 = Slip Right world.
+var _evade_world_dir := 0.0
+var _last_slip_world_dir := 0.0
 
 
 func _ready() -> void:
@@ -76,15 +90,24 @@ func _apply_composed_position() -> void:
 func _on_player_action_state_changed(state: int) -> void:
 	match state:
 		ActionStateType.PlayerState.SLIP_LEFT:
+			_last_slip_world_dir = 1.0
 			_tween_world_parallax(1.0)
 		ActionStateType.PlayerState.SLIP_RIGHT:
+			_last_slip_world_dir = -1.0
 			_tween_world_parallax(-1.0)
 		_:
+			if _evade_hold_active and _evade_world_dir != 0.0:
+				## Gameplay slip ended, but EVADE punch is still on screen — keep offset.
+				_tween_world_parallax(_evade_world_dir)
+				return
 			_tween_world_parallax(0.0)
 
 
 func _tween_world_parallax(direction: float) -> void:
 	## direction: +1 Slip Left (world +X), -1 Slip Right (world -X), 0 = home.
+	## Opponent uses the largest magnitude and is never recentered — only additive.
+	_parallax_token += 1
+	var token := _parallax_token
 	if _parallax_tween != null and _parallax_tween.is_valid():
 		_parallax_tween.kill()
 	_parallax_tween = null
@@ -111,6 +134,8 @@ func _tween_world_parallax(direction: float) -> void:
 	if background_visual != null:
 		_parallax_tween.tween_method(
 			func(v: Vector2) -> void:
+				if token != _parallax_token:
+					return
 				if background_visual != null and background_visual.has_method("set_crowd_parallax"):
 					background_visual.set_crowd_parallax(v),
 			crowd_from,
@@ -119,6 +144,8 @@ func _tween_world_parallax(direction: float) -> void:
 		)
 		_parallax_tween.tween_method(
 			func(v: Vector2) -> void:
+				if token != _parallax_token:
+					return
 				if background_visual != null and background_visual.has_method("set_ring_parallax"):
 					background_visual.set_ring_parallax(v),
 			ring_from,
@@ -128,6 +155,8 @@ func _tween_world_parallax(direction: float) -> void:
 	if opponent_visual != null and opponent_visual.has_method("set_parallax_offset"):
 		_parallax_tween.tween_method(
 			func(v: Vector2) -> void:
+				if token != _parallax_token:
+					return
 				if opponent_visual != null and opponent_visual.has_method("set_parallax_offset"):
 					opponent_visual.set_parallax_offset(v),
 			opp_from,
@@ -137,6 +166,7 @@ func _tween_world_parallax(direction: float) -> void:
 
 
 func _reset_world_parallax_immediate() -> void:
+	_parallax_token += 1
 	if _parallax_tween != null and _parallax_tween.is_valid():
 		_parallax_tween.kill()
 	_parallax_tween = null
@@ -171,11 +201,87 @@ func _on_opponent_attack_resolved(
 	was_knockdown: bool
 ) -> void:
 	if was_knockdown:
+		_clear_evade_visual_hold()
 		_clear_shake()
+		return
+	if result == DefenseResolverType.DefenseResult.EVADE:
+		_begin_evade_visual_hold()
 		return
 	if result != DefenseResolverType.DefenseResult.HIT:
 		return
+	_clear_evade_visual_hold()
 	_play_shake(player_hit_shake_strength, player_hit_shake_duration)
+
+
+func _begin_evade_visual_hold() -> void:
+	var world_dir := _resolve_evade_world_dir()
+	if world_dir == 0.0:
+		return
+
+	_evade_hold_active = true
+	_evade_world_dir = world_dir
+	_evade_hold_token += 1
+	var token := _evade_hold_token
+
+	## Reinforce slip-direction world offset at full magnitude.
+	_tween_world_parallax(world_dir)
+
+	## Player POV: Slip Left = -1, Slip Right = +1
+	var pov_dir := -1 if world_dir > 0.0 else 1
+	if player_visual != null and player_visual.has_method("hold_evade_slip_pov"):
+		player_visual.hold_evade_slip_pov(pov_dir)
+
+	if opponent_visual != null and opponent_visual.has_method("apply_evade_passby"):
+		opponent_visual.apply_evade_passby(world_dir, evade_passby_offset_x)
+
+	var hold := evade_visual_hold_seconds
+	if opponent_visual != null and "attack_pose_hold_seconds" in opponent_visual:
+		hold = maxf(hold, float(opponent_visual.attack_pose_hold_seconds))
+	hold = maxf(hold, 0.01)
+	get_tree().create_timer(hold).timeout.connect(
+		func() -> void:
+			if token == _evade_hold_token:
+				_end_evade_visual_hold()
+	)
+
+
+func _resolve_evade_world_dir() -> float:
+	if player_action_state != null:
+		match player_action_state.current_state:
+			ActionStateType.PlayerState.SLIP_LEFT:
+				return 1.0
+			ActionStateType.PlayerState.SLIP_RIGHT:
+				return -1.0
+	## Slip may already have ended at resolve time — use last known direction.
+	return _last_slip_world_dir
+
+
+func _end_evade_visual_hold() -> void:
+	_evade_hold_active = false
+	_evade_world_dir = 0.0
+	if opponent_visual != null and opponent_visual.has_method("clear_evade_passby"):
+		opponent_visual.clear_evade_passby()
+	if player_visual != null and player_visual.has_method("release_evade_slip_pov"):
+		player_visual.release_evade_slip_pov()
+	## Return home unless player is mid-slip again.
+	if player_action_state != null:
+		match player_action_state.current_state:
+			ActionStateType.PlayerState.SLIP_LEFT:
+				_tween_world_parallax(1.0)
+				return
+			ActionStateType.PlayerState.SLIP_RIGHT:
+				_tween_world_parallax(-1.0)
+				return
+	_tween_world_parallax(0.0)
+
+
+func _clear_evade_visual_hold() -> void:
+	_evade_hold_token += 1
+	if not _evade_hold_active and _evade_world_dir == 0.0:
+		if opponent_visual != null and opponent_visual.has_method("clear_evade_passby"):
+			opponent_visual.clear_evade_passby()
+		return
+	_end_evade_visual_hold()
 
 
 func _on_match_state_changed(state: int) -> void:
@@ -184,9 +290,11 @@ func _on_match_state_changed(state: int) -> void:
 		or state == KnockdownManagerType.MatchState.OPPONENT_DOWN
 		or state == KnockdownManagerType.MatchState.FINAL_KO
 	):
+		_clear_evade_visual_hold()
 		_clear_shake()
 		_reset_world_parallax_immediate()
 	elif state == KnockdownManagerType.MatchState.FIGHTING:
+		_clear_evade_visual_hold()
 		_clear_shake()
 		_reset_world_parallax_immediate()
 

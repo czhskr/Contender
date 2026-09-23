@@ -46,8 +46,8 @@ enum Priority {
 @export_range(0.2, 6.0, 0.05, "or_greater") var breathing_cycle_seconds := 1.6
 
 @export_group("Slip POV")
-@export_range(0.0, 200.0, 1.0, "or_greater") var slip_pov_x := 42.0
-@export_range(0.0, 200.0, 1.0, "or_greater") var slip_pov_y := 14.0
+@export_range(0.0, 200.0, 1.0, "or_greater") var slip_pov_x := 90.0
+@export_range(0.0, 200.0, 1.0, "or_greater") var slip_pov_y := 24.0
 @export_range(0.01, 1.0, 0.01, "or_greater") var slip_pov_tween_seconds := 0.10
 
 @export_group("Runtime Offsets (read-only during play)")
@@ -55,6 +55,12 @@ var breathing_offset := Vector2.ZERO
 var pov_offset := Vector2.ZERO
 ## DOWN: shift full-frame POV downward (no rotation).
 @export var knockdown_drop_distance := 50.0
+
+@export_group("Knockdown Impact Shake")
+## Visual-only vertical jolt on this POV overlay (not screen shake). Keep small.
+@export_range(0.0, 64.0, 0.5, "or_greater") var knockdown_impact_shake_y := 6.0
+@export_range(1, 8, 1) var knockdown_impact_shake_count := 3
+@export_range(0.01, 1.0, 0.01, "or_greater") var knockdown_impact_shake_duration := 0.18
 
 @export_group("Debug")
 @export var show_visual_debug := false
@@ -67,12 +73,20 @@ var _debug_label: Label
 var _priority := Priority.IDLE
 var _action_effect_offset := Vector2.ZERO
 var _knockdown_offset := Vector2.ZERO
+var _knockdown_impact_offset := Vector2.ZERO
 var _knocked_down := false
 var _warned_resolution := false
 
 var _breathing_tween: Tween
 var _pov_tween: Tween
+var _knockdown_impact_tween: Tween
 var _breathing_active := false
+## Invalidates in-flight POV tweens (slip cancel / chain / knockdown).
+var _pov_token := 0
+## EVADE hold: keep slip POV after gameplay slip ends until punch pose finishes.
+var _evade_pov_hold := false
+var _evade_pov_dir := 0
+var _knockdown_impact_token := 0
 
 
 func _ready() -> void:
@@ -140,16 +154,21 @@ func _on_action_state_changed(state: int) -> void:
 		elif state == ActionStateType.PlayerState.SLIP_RIGHT:
 			_begin_slip_pov(1)
 		elif state == ActionStateType.PlayerState.IDLE:
-			_end_slip_pov()
+			if not _evade_pov_hold:
+				_end_slip_pov()
 		return
 
 	match state:
 		ActionStateType.PlayerState.IDLE:
+			if _evade_pov_hold:
+				## Keep slipped POV while EVADE punch is still visible.
+				return
 			_end_slip_pov()
 			_show_idle()
 		ActionStateType.PlayerState.GUARD:
 			_stop_breathing()
-			_end_slip_pov()
+			if not _evade_pov_hold:
+				_end_slip_pov()
 			_show_guard()
 		ActionStateType.PlayerState.SLIP_LEFT:
 			_stop_breathing()
@@ -163,24 +182,44 @@ func _on_action_state_changed(state: int) -> void:
 			_stop_breathing()
 
 
+## Called by CombatVisualRoot on EVADE — hold POV past gameplay slip end.
+func hold_evade_slip_pov(direction: int) -> void:
+	_evade_pov_hold = true
+	_evade_pov_dir = direction
+	_begin_slip_pov(direction)
+
+
+func release_evade_slip_pov() -> void:
+	_evade_pov_hold = false
+	_evade_pov_dir = 0
+	if action_state != null and action_state.is_evading():
+		return
+	_end_slip_pov()
+
+
 func _on_match_state_changed(state: int) -> void:
 	if state == KnockdownManagerType.MatchState.PLAYER_DOWN:
 		_knocked_down = true
+		_evade_pov_hold = false
 		_stop_breathing()
 		_reset_pov_immediate()
 		_set_priority(Priority.KNOCKDOWN)
 		_knockdown_offset = Vector2(0.0, knockdown_drop_distance)
 		_show_pose("KNOCKDOWN", texture_idle)
+		_play_knockdown_impact_shake()
 	elif state == KnockdownManagerType.MatchState.FINAL_KO:
 		if knockdown_manager.downed_side == KnockdownManagerType.DownedSide.PLAYER:
 			_knocked_down = true
+			_evade_pov_hold = false
 			_stop_breathing()
 			_reset_pov_immediate()
 			_set_priority(Priority.KNOCKDOWN)
 			_knockdown_offset = Vector2(0.0, knockdown_drop_distance)
+			## No second impact shake — entry shake already played on PLAYER_DOWN.
 			_show_pose("KO", texture_idle)
 	elif state == KnockdownManagerType.MatchState.FIGHTING:
 		if not _knocked_down and _priority == Priority.KNOCKDOWN:
+			_clear_knockdown_impact()
 			_knockdown_offset = Vector2.ZERO
 			_action_effect_offset = Vector2.ZERO
 			_show_idle()
@@ -190,6 +229,7 @@ func _on_recovered(downed_side: int, _at_count: int) -> void:
 	if downed_side != KnockdownManagerType.DownedSide.PLAYER:
 		return
 	_knocked_down = false
+	_clear_knockdown_impact()
 	_knockdown_offset = Vector2.ZERO
 	_action_effect_offset = Vector2.ZERO
 	_reset_pov_immediate()
@@ -269,7 +309,7 @@ func _warn_if_unexpected_resolution(texture: Texture2D, path: String) -> void:
 func _apply_composed_transform() -> void:
 	if _anchor == null:
 		return
-	## base + breathing + action + POV + knockdown (shake lives on CombatVisualRoot).
+	## base + breathing + action + POV + knockdown drop + impact shake
 	_anchor.rotation_degrees = 0.0
 	_anchor.position = (
 		asset_base_position
@@ -277,12 +317,72 @@ func _apply_composed_transform() -> void:
 		+ _action_effect_offset
 		+ pov_offset
 		+ _knockdown_offset
+		+ _knockdown_impact_offset
 	)
 	if _sprite != null:
 		_sprite.centered = false
 		_sprite.offset = Vector2.ZERO
 		_sprite.scale = Vector2(player_display_scale, player_display_scale)
 		_sprite.rotation_degrees = 0.0
+
+
+func _play_knockdown_impact_shake() -> void:
+	## One-shot vertical jolt on knockdown entry only (not during count).
+	_knockdown_impact_token += 1
+	var token := _knockdown_impact_token
+	if _knockdown_impact_tween != null and _knockdown_impact_tween.is_valid():
+		_knockdown_impact_tween.kill()
+	_knockdown_impact_tween = null
+	_knockdown_impact_offset = Vector2.ZERO
+	_apply_composed_transform()
+
+	if knockdown_impact_shake_y <= 0.0 or knockdown_impact_shake_duration <= 0.0:
+		return
+	var steps := maxi(knockdown_impact_shake_count, 1)
+	var step_dur := maxf(knockdown_impact_shake_duration / float(steps), 0.01)
+	_knockdown_impact_tween = create_tween()
+	for i in range(steps):
+		var mag := knockdown_impact_shake_y * (1.0 - float(i) / float(steps))
+		var sign := 1.0 if (i % 2) == 0 else -1.0
+		var peak := Vector2(0.0, mag * sign)
+		var captured := peak
+		_knockdown_impact_tween.tween_method(
+			func(v: Vector2) -> void:
+				if token != _knockdown_impact_token:
+					return
+				_knockdown_impact_offset = v
+				_apply_composed_transform(),
+			Vector2.ZERO if i == 0 else Vector2(0.0, 0.0),
+			captured,
+			step_dur * 0.45
+		)
+		## Return toward zero between peaks so drop offset remains the settle base.
+		_knockdown_impact_tween.tween_method(
+			func(v: Vector2) -> void:
+				if token != _knockdown_impact_token:
+					return
+				_knockdown_impact_offset = v
+				_apply_composed_transform(),
+			captured,
+			Vector2.ZERO,
+			step_dur * 0.55
+		)
+	_knockdown_impact_tween.finished.connect(
+		func() -> void:
+			if token == _knockdown_impact_token:
+				_knockdown_impact_offset = Vector2.ZERO
+				_apply_composed_transform()
+	)
+
+
+func _clear_knockdown_impact() -> void:
+	_knockdown_impact_token += 1
+	if _knockdown_impact_tween != null and _knockdown_impact_tween.is_valid():
+		_knockdown_impact_tween.kill()
+	_knockdown_impact_tween = null
+	if _knockdown_impact_offset != Vector2.ZERO:
+		_knockdown_impact_offset = Vector2.ZERO
+		_apply_composed_transform()
 
 
 func _start_breathing() -> void:
@@ -337,6 +437,8 @@ func _end_slip_pov() -> void:
 
 
 func _tween_pov_to(target: Vector2) -> void:
+	_pov_token += 1
+	var token := _pov_token
 	if _pov_tween != null and _pov_tween.is_valid():
 		_pov_tween.kill()
 	_pov_tween = null
@@ -350,15 +452,25 @@ func _tween_pov_to(target: Vector2) -> void:
 	_pov_tween.set_trans(Tween.TRANS_SINE)
 	_pov_tween.tween_method(
 		func(v: Vector2) -> void:
+			if token != _pov_token:
+				return
 			pov_offset = v
 			_apply_composed_transform(),
 		from,
 		target,
 		maxf(slip_pov_tween_seconds, 0.01)
 	)
+	_pov_tween.finished.connect(
+		func() -> void:
+			if token != _pov_token:
+				return
+			pov_offset = target
+			_apply_composed_transform()
+	)
 
 
 func _reset_pov_immediate() -> void:
+	_pov_token += 1
 	if _pov_tween != null and _pov_tween.is_valid():
 		_pov_tween.kill()
 	_pov_tween = null

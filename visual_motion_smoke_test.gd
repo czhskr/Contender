@@ -29,7 +29,7 @@ func _run() -> void:
 	_check_parallax_direction_and_magnitude(failures)
 	_check_opponent_not_center_locked(failures)
 	_check_parallax_and_shake_wiring(failures)
-	_check_stale_tween_tokens(failures)
+	await _check_stale_tween_tokens(failures)
 	_check_evade_visual_hold_api(failures)
 	_check_guard_no_recovery(failures)
 	_check_attack_to_guard_threshold(failures)
@@ -51,14 +51,18 @@ func _check_defaults(failures: Array[String]) -> void:
 	var player := PlayerVisualType.new()
 	var opponent := OpponentVisualType.new()
 	var visual_root := CombatVisualRootType.new()
+	const PlayerEvadeType = preload("res://scripts/player_evade.gd")
+	var evade := PlayerEvadeType.new()
 	if not is_equal_approx(player.breathing_amplitude, 6.0):
 		failures.append("Player breathing_amplitude != 6")
 	if not is_equal_approx(player.breathing_cycle_seconds, 1.6):
 		failures.append("Player breathing_cycle_seconds != 1.6")
-	if not is_equal_approx(player.slip_pov_x, 90.0):
-		failures.append("slip_pov_x != 90")
-	if not is_equal_approx(player.slip_pov_y, 24.0):
-		failures.append("slip_pov_y != 24")
+	if evade.left_offset != Vector2(0.0, 4.0):
+		failures.append("LEFT evade offset != (0, 4)")
+	if evade.right_offset != Vector2(0.0, 4.0):
+		failures.append("RIGHT evade offset != (0, 4)")
+	if evade.down_offset != Vector2(0.0, 10.0):
+		failures.append("DOWN evade offset != (0, 10)")
 	if not is_equal_approx(opponent.breathing_amplitude, 6.0):
 		failures.append("Opponent breathing_amplitude != 6")
 	if not is_equal_approx(opponent.attack_pose_hold_seconds, 0.20):
@@ -71,12 +75,12 @@ func _check_defaults(failures: Array[String]) -> void:
 		failures.append("opponent knockdown_impact_shake_duration != 0.18")
 	if not is_equal_approx(player.knockdown_impact_shake_y, 6.0):
 		failures.append("player knockdown_impact_shake_y != 6")
-	if not is_equal_approx(visual_root.parallax_crowd_x, 10.0):
-		failures.append("parallax_crowd_x != 10")
-	if not is_equal_approx(visual_root.parallax_ring_x, 24.0):
-		failures.append("parallax_ring_x != 24")
-	if not is_equal_approx(visual_root.parallax_opponent_x, 48.0):
-		failures.append("parallax_opponent_x != 48")
+	if not is_equal_approx(visual_root.parallax_crowd_x, 20.0):
+		failures.append("parallax_crowd_x != 20")
+	if not is_equal_approx(visual_root.parallax_ring_x, 45.0):
+		failures.append("parallax_ring_x != 45")
+	if not is_equal_approx(visual_root.parallax_opponent_x, 90.0):
+		failures.append("parallax_opponent_x != 90")
 	if not is_equal_approx(visual_root.evade_passby_offset_x, 130.0):
 		failures.append("evade_passby must stay 130")
 	if not is_equal_approx(visual_root.evade_visual_hold_seconds, 0.20):
@@ -93,6 +97,7 @@ func _check_defaults(failures: Array[String]) -> void:
 	player.free()
 	opponent.free()
 	visual_root.free()
+	evade.free()
 
 
 func _check_compose_and_breathing(failures: Array[String]) -> void:
@@ -132,29 +137,36 @@ func _check_compose_and_breathing(failures: Array[String]) -> void:
 
 
 func _check_slip_pov_absolute(failures: Array[String]) -> void:
+	const PlayerEvadeType = preload("res://scripts/player_evade.gd")
+	var evade := PlayerEvadeType.new()
 	var player := PlayerVisualType.new()
+	player.player_evade = evade
+	player.evade_smooth_time = 0.01
+	root.add_child(evade)
 	root.add_child(player)
 	await process_frame
-	player.slip_pov_tween_seconds = 0.01
-	player._begin_slip_pov(-1)
-	player.pov_offset = Vector2(-player.slip_pov_x, player.slip_pov_y)
-	player._apply_composed_transform()
-	if not is_equal_approx(player.pov_offset.x, -90.0):
-		failures.append("Slip Left POV X expected -90")
-	if not is_equal_approx(player.pov_offset.y, 24.0):
-		failures.append("Slip Left POV Y expected +24")
-	player._begin_slip_pov(-1)
-	player.pov_offset = Vector2(-player.slip_pov_x, player.slip_pov_y)
-	if not is_equal_approx(player.pov_offset.x, -90.0):
-		failures.append("Consecutive Slip Left drifted POV")
-	player._begin_slip_pov(1)
-	player.pov_offset = Vector2(player.slip_pov_x, player.slip_pov_y)
-	if not is_equal_approx(player.pov_offset.x, 90.0):
-		failures.append("Slip Right POV X expected +90")
+	evade.set_movement_direction(PlayerEvadeType.Direction.LEFT)
+	for _i in 30:
+		player._process(0.02)
+	if absf(player.pov_offset.x) > 0.01:
+		failures.append("Evade Left POV X must be 0")
+	if not is_equal_approx(player.pov_offset.y, 4.0):
+		failures.append("Evade Left POV Y expected +4 (got %.2f)" % player.pov_offset.y)
+	evade.set_movement_direction(PlayerEvadeType.Direction.RIGHT)
+	for _j in 10:
+		player._process(0.02)
+	if absf(player.pov_offset.x) > 0.01:
+		failures.append("Evade Right POV X must be 0")
+	evade.set_movement_direction(PlayerEvadeType.Direction.DOWN)
+	for _k in 30:
+		player._process(0.02)
+	if not is_equal_approx(player.pov_offset.y, 10.0):
+		failures.append("Evade Down POV Y expected +10 (got %.2f)" % player.pov_offset.y)
 	player._reset_pov_immediate()
 	if player.pov_offset != Vector2.ZERO:
 		failures.append("POV reset failed")
 	player.queue_free()
+	evade.queue_free()
 	await process_frame
 
 
@@ -195,8 +207,8 @@ func _check_opponent_not_center_locked(failures: Array[String]) -> void:
 
 func _check_parallax_and_shake_wiring(failures: Array[String]) -> void:
 	var visual_root := CombatVisualRootType.new()
-	if not visual_root.has_method("_tween_world_parallax"):
-		failures.append("CombatVisualRoot missing parallax tween")
+	if not visual_root.has_method("_set_parallax_targets_for_direction"):
+		failures.append("CombatVisualRoot missing continuous parallax targets")
 	if not visual_root.has_method("_play_shake"):
 		failures.append("CombatVisualRoot missing shake")
 	if not visual_root.has_method("_clear_shake"):
@@ -208,7 +220,6 @@ func _check_parallax_and_shake_wiring(failures: Array[String]) -> void:
 	visual_root.set_shake_offset(Vector2.ZERO)
 	if visual_root.position != visual_root.base_position:
 		failures.append("Shake did not return to base")
-	## Root itself does not carry world parallax — only shake.
 	visual_root.free()
 
 	var bg := BackgroundVisualType.new()
@@ -218,33 +229,40 @@ func _check_parallax_and_shake_wiring(failures: Array[String]) -> void:
 
 
 func _check_stale_tween_tokens(failures: Array[String]) -> void:
+	const PlayerEvadeType = preload("res://scripts/player_evade.gd")
+	var evade := PlayerEvadeType.new()
 	var player := PlayerVisualType.new()
-	player._build_nodes()
-	var token0: int = player._pov_token
-	player._begin_slip_pov(-1)
-	if player._pov_token <= token0:
-		failures.append("POV tween should bump token on begin")
-	var token1: int = player._pov_token
-	player._begin_slip_pov(1)
-	if player._pov_token <= token1:
-		failures.append("Chained Slip should invalidate prior POV tween")
+	player.player_evade = evade
+	player.evade_smooth_time = 0.01
+	root.add_child(evade)
+	root.add_child(player)
+	await process_frame
+	evade.set_movement_direction(PlayerEvadeType.Direction.LEFT)
+	player._process(0.2)
+	evade.set_movement_direction(PlayerEvadeType.Direction.RIGHT)
+	player._process(0.2)
+	if absf(player.pov_offset.x) > 0.01:
+		failures.append("Chained evade must keep Player X = 0")
 	player._reset_pov_immediate()
 	if player.pov_offset != Vector2.ZERO:
 		failures.append("POV immediate reset failed after chain")
-	player.free()
+	player.queue_free()
+	evade.queue_free()
+	await process_frame
 
 	var visual_root := CombatVisualRootType.new()
-	var p0: int = visual_root._parallax_token
-	visual_root._tween_world_parallax(1.0)
-	if visual_root._parallax_token <= p0:
-		failures.append("Parallax tween should bump token")
-	var p1: int = visual_root._parallax_token
-	visual_root._tween_world_parallax(-1.0)
-	if visual_root._parallax_token <= p1:
-		failures.append("Chained parallax should invalidate prior tween")
+	visual_root._set_parallax_targets_for_direction(PlayerEvadeType.Direction.LEFT)
+	if visual_root._crowd_parallax.x <= 0.0:
+		failures.append("LEFT parallax should be +X")
+	visual_root._set_parallax_targets_for_direction(PlayerEvadeType.Direction.RIGHT)
+	if visual_root._opponent_parallax.x >= 0.0:
+		failures.append("RIGHT parallax should be -X")
+	visual_root._set_parallax_targets_for_direction(PlayerEvadeType.Direction.DOWN)
+	if visual_root._opponent_parallax.y >= 0.0:
+		failures.append("DOWN parallax should be -Y")
 	visual_root._reset_world_parallax_immediate()
-	if visual_root._parallax_token <= p1:
-		failures.append("Immediate parallax reset should bump token")
+	if visual_root._crowd_parallax != Vector2.ZERO:
+		failures.append("Immediate parallax reset failed")
 	visual_root.free()
 
 
@@ -254,25 +272,17 @@ func _check_evade_visual_hold_api(failures: Array[String]) -> void:
 		failures.append("evade_visual_hold_seconds expected 0.20")
 	if not is_equal_approx(visual_root.evade_passby_offset_x, 130.0):
 		failures.append("evade_passby_offset_x expected 130")
-	if not visual_root.has_method("_begin_evade_visual_hold"):
-		failures.append("Missing evade visual hold")
+	if not visual_root.has_method("_begin_evade_passby_presentation"):
+		failures.append("Missing evade passby presentation")
+	## Passby must not lock player continuous movement APIs
+	if visual_root.has_method("hold_evade_slip_pov"):
+		failures.append("Root must not lock player POV via slip hold")
 	visual_root.free()
 
 	var player := PlayerVisualType.new()
 	player._build_nodes()
-	if not player.has_method("hold_evade_slip_pov") or not player.has_method("release_evade_slip_pov"):
-		failures.append("PlayerVisual missing evade POV hold API")
-	else:
-		player.hold_evade_slip_pov(-1)
-		if not player._evade_pov_hold:
-			failures.append("hold_evade_slip_pov did not arm hold")
-		## Simulate gameplay slip ending while hold active
-		player._evade_pov_hold = true
-		player.pov_offset = Vector2(-70, 20)
-		## release should clear when not evading
-		player.release_evade_slip_pov()
-		if player._evade_pov_hold:
-			failures.append("release_evade_slip_pov did not clear hold flag")
+	if player.has_method("hold_evade_slip_pov"):
+		failures.append("PlayerVisual must not lock POV on evade success")
 	player.free()
 
 	var opponent := OpponentVisualType.new()
@@ -288,9 +298,12 @@ func _check_evade_visual_hold_api(failures: Array[String]) -> void:
 				"EVADE passby not additive with parallax (got %.1f expected %.1f)"
 				% [opponent._anchor.position.x, expected]
 			)
-		## ACTIVE texture swap must not wipe passby if already set
+		opponent.apply_evade_passby_offset(Vector2(0.0, -40.0))
+		var expected_y := opponent.asset_base_position.y - 40.0
+		if opponent._anchor != null and not is_equal_approx(opponent._anchor.position.y, expected_y):
+			failures.append("DOWN passby Y not applied")
 		opponent._show_attack(0)
-		if opponent._anchor != null and not is_equal_approx(opponent._anchor.position.x, expected):
+		if opponent._anchor != null and not is_equal_approx(opponent._anchor.position.y, expected_y):
 			failures.append("Straight texture swap cleared evade passby")
 		opponent.clear_evade_passby()
 		var after := opponent.asset_base_position.x + 48.0
@@ -343,11 +356,17 @@ func _check_guard_no_recovery(failures: Array[String]) -> void:
 		failures.append("Guard release should enter IDLE immediately (no post-lock)")
 	if not action.can_attack():
 		failures.append("After Guard release, Attack should be available immediately")
-	if not action.try_start_evasion(CombatInputType.DefenseType.SLIP_LEFT):
-		failures.append("After Guard release, Slip should be available immediately")
-	## Evade window unchanged (base slip_duration)
-	if not is_equal_approx(action.slip_duration, 0.18):
-		failures.append("Player slip_duration (evade window) changed")
+	## Continuous evade is not an exclusive action state
+	if action.has_method("try_start_evasion"):
+		failures.append("PlayerActionState must not own slip evasion")
+	const PlayerEvadeType = preload("res://scripts/player_evade.gd")
+	var evade := PlayerEvadeType.new()
+	evade.player_stamina = stamina
+	if not evade.try_begin_window(PlayerEvadeType.Direction.LEFT):
+		failures.append("After Guard release, Evade window should be available")
+	if not is_equal_approx(evade.evade_window, 0.18):
+		failures.append("Player evade_window changed")
+	evade.queue_free()
 	action.force_reset_to_idle()
 	stamina.queue_free()
 	hit_stun.queue_free()
@@ -452,16 +471,21 @@ func _check_scene(failures: Array[String]) -> void:
 			failures.append("CombatVisualRoot.background_visual not wired")
 		if visual_root.opponent_visual == null:
 			failures.append("CombatVisualRoot.opponent_visual not wired")
-		if not is_equal_approx(visual_root.parallax_opponent_x, 48.0):
-			failures.append("Scene parallax_opponent_x != 48")
+		if not is_equal_approx(visual_root.parallax_opponent_x, 90.0):
+			failures.append("Scene parallax_opponent_x != 90")
 	var player_v = scene.get_node_or_null("CombatVisualRoot/PlayerVisual")
 	if player_v != null:
-		if not is_equal_approx(player_v.slip_pov_x, 90.0):
-			failures.append("Scene slip_pov_x != 90")
-		if not is_equal_approx(player_v.slip_pov_y, 24.0):
-			failures.append("Scene slip_pov_y != 24")
+		if player_v.player_evade == null:
+			failures.append("PlayerVisual.player_evade not wired")
+		if not is_equal_approx(player_v.opponent_down_idle_offset_y, 90.0):
+			failures.append("Scene opponent_down_idle_offset_y != 90")
 		if not is_equal_approx(player_v.knockdown_impact_shake_y, 6.0):
 			failures.append("Scene player knockdown_impact_shake_y != 6")
+	var evade_node = scene.get_node_or_null("PlayerEvade")
+	if evade_node == null:
+		failures.append("PlayerEvade missing")
+	elif evade_node.left_offset != Vector2(0.0, 4.0):
+		failures.append("Scene LEFT evade offset wrong")
 	var opp_v = scene.get_node_or_null("CombatVisualRoot/OpponentVisual")
 	if opp_v != null and not is_equal_approx(opp_v.attack_pose_hold_seconds, 0.20):
 		failures.append("Scene OpponentVisual hold != 0.20")

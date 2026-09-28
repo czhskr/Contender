@@ -149,11 +149,11 @@ func _check_no_legacy_systems(failures: Array[String]) -> void:
 	if OpponentAttackDataType.AttackType.LEFT_HOOK in OpponentAIType.ACTIVE_ATTACK_TYPES:
 		failures.append("AI Hooks re-enabled")
 	var has_duck := false
-	for key in CombatInputType.DefenseType.keys():
+	for key in CombatInputType.EvadeDirection.keys():
 		if str(key) == "DUCK":
 			has_duck = true
 	if has_duck:
-		failures.append("DefenseType.DUCK still exists")
+		failures.append("EvadeDirection.DUCK must not exist")
 	input.queue_free()
 
 

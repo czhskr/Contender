@@ -96,13 +96,15 @@ func _check_no_duck(failures: Array[String]) -> void:
 	if &"combat_duck" in InputMap.get_actions():
 		failures.append("combat_duck still registered")
 	var input := CombatInputType.new()
-	## DefenseType should not expose DUCK
+	## EvadeDirection may include DOWN; must not include DUCK
 	var has_duck := false
-	for key in CombatInputType.DefenseType.keys():
+	for key in CombatInputType.EvadeDirection.keys():
 		if str(key) == "DUCK":
 			has_duck = true
 	if has_duck:
-		failures.append("DefenseType.DUCK still exists")
+		failures.append("EvadeDirection.DUCK must not exist")
+	if not CombatInputType.EvadeDirection.keys().has("DOWN"):
+		failures.append("EvadeDirection.DOWN missing")
 	input.queue_free()
 
 

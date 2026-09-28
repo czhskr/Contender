@@ -85,6 +85,7 @@ var _hit_release_token := 0
 var _attack_pose_token := 0
 var _attack_pose_holding := false
 var _knockdown_impact_token := 0
+var _finisher_freeze := false
 
 var _breathing_tween: Tween
 var _knockdown_impact_tween: Tween
@@ -138,6 +139,8 @@ func set_parallax_offset(offset: Vector2) -> void:
 func _on_attack_state_changed(state: int, attack_data) -> void:
 	if _priority >= Priority.KNOCKDOWN:
 		return
+	if _finisher_freeze:
+		return
 	match state:
 		AttackStateType.AttackState.STARTUP:
 			## Keep stance / prior pose. Do not show Straight PNG during Startup.
@@ -160,6 +163,8 @@ func _on_attack_state_changed(state: int, attack_data) -> void:
 
 func _on_action_state_changed(state: int) -> void:
 	if _priority >= Priority.HIT:
+		return
+	if _finisher_freeze:
 		return
 	if (
 		opponent_attack_state != null
@@ -198,8 +203,7 @@ func _on_player_attack_hit(
 	was_knockdown: bool,
 	result: int
 ) -> void:
-	if was_knockdown:
-		return
+	## Finisher HIT: show hit pose during freeze. DOWN/drop waits for match_state OPPONENT_DOWN.
 	if result != OffenseResolverType.ResolveResult.HIT:
 		return
 	if _priority >= Priority.KNOCKDOWN:
@@ -211,10 +215,13 @@ func _on_player_attack_hit(
 	_action_effect_offset = Vector2.ZERO
 	_show_pose("HIT", texture_hit)
 	_hit_release_token += 1
+	if was_knockdown or _finisher_freeze:
+		## Hold hit pose until KnockdownManager promotes priority; do not auto-release to idle.
+		return
 	var token := _hit_release_token
 	get_tree().create_timer(hit_hold_seconds).timeout.connect(
 		func() -> void:
-			if token == _hit_release_token:
+			if token == _hit_release_token and not _finisher_freeze:
 				_release_hit_if_allowed()
 	)
 
@@ -229,9 +236,15 @@ func _on_opponent_attack_resolved(
 	pass
 
 
-## Visual-only: shift Straight further along slip-away axis so glove clears face center.
+## Visual-only: shift Straight further along evade-away axis so glove clears face center.
 func apply_evade_passby(world_dir: float, amount: float) -> void:
-	_evade_passby_offset = Vector2(amount * world_dir, 0.0)
+	apply_evade_passby_offset(Vector2(amount * world_dir, 0.0))
+
+
+func apply_evade_passby_offset(offset: Vector2) -> void:
+	if _finisher_freeze:
+		return
+	_evade_passby_offset = offset
 	_action_effect_offset = _evade_passby_offset
 	_apply_composed_transform()
 
@@ -284,6 +297,8 @@ func _on_recovered(downed_side: int, _at_count: int) -> void:
 
 
 func _release_hit_if_allowed() -> void:
+	if _finisher_freeze:
+		return
 	if _priority == Priority.HIT and not _locked_final_ko:
 		_show_idle()
 
@@ -302,7 +317,7 @@ func _begin_attack_pose(attack_type: int) -> void:
 		return
 	get_tree().create_timer(hold).timeout.connect(
 		func() -> void:
-			if token == _attack_pose_token:
+			if token == _attack_pose_token and not _finisher_freeze:
 				_release_attack_pose_to_stance()
 	)
 
@@ -314,6 +329,8 @@ func _cancel_attack_pose_hold() -> void:
 
 func _release_attack_pose_to_stance() -> void:
 	## Combat may still be in RECOVERY; visual returns to stance without unlocking attacks.
+	if _finisher_freeze:
+		return
 	if _priority > Priority.ATTACK:
 		_attack_pose_holding = false
 		return
@@ -321,6 +338,17 @@ func _release_attack_pose_to_stance() -> void:
 	if _locked_final_ko:
 		return
 	_show_idle()
+
+
+## Finisher Impact Freeze: lock current attack/HIT pose; stop breathing.
+func set_finisher_freeze(active: bool) -> void:
+	_finisher_freeze = active
+	if active:
+		_stop_breathing()
+		## Cancel auto-release timers so pose stays for the freeze duration.
+		_attack_pose_token += 1
+		_hit_release_token += 1
+		_attack_pose_holding = _priority == Priority.ATTACK or _attack_pose_holding
 
 
 func _show_attack(attack_type: int) -> void:
@@ -443,7 +471,7 @@ func _clear_knockdown_impact() -> void:
 
 
 func _start_breathing() -> void:
-	if _locked_final_ko or _priority != Priority.IDLE:
+	if _locked_final_ko or _finisher_freeze or _priority != Priority.IDLE:
 		return
 	if breathing_amplitude <= 0.0 or breathing_cycle_seconds <= 0.0:
 		return

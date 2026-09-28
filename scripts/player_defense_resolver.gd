@@ -30,6 +30,7 @@ const ATTACK_NAMES := [
 ]
 
 @export var player_action_state: ActionStateType
+@export var player_evade: Node
 @export var player_knockdown_meter: KnockdownMeterType
 @export var opponent_attack_state: Node
 
@@ -105,11 +106,7 @@ func resolve_attack(attack_data: AttackDataType) -> void:
 
 
 func _does_evasion_avoid_attack(_attack_data: AttackDataType) -> bool:
-	if not player_action_state.is_evasion_active():
-		return false
-	var evasion := player_action_state.get_current_evasion()
-	## Slip Left / Slip Right avoid Straights and Hooks.
-	return evasion in [
-		ActionStateType.PlayerState.SLIP_LEFT,
-		ActionStateType.PlayerState.SLIP_RIGHT,
-	]
+	## Continuous Evade: gameplay window only (PlayerEvade), not exclusive slip states.
+	if player_evade != null and player_evade.has_method("is_window_active"):
+		return player_evade.is_window_active()
+	return false

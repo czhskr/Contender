@@ -24,7 +24,7 @@ func _initialize() -> void:
 	_check_recovery_progress_and_cancel(failures)
 	_check_attack_buffer_executes_in_window(failures)
 	_check_cancel_threshold_order(failures)
-	_check_slip_progress_and_chain(failures)
+	_check_evade_window_and_attack_cancel(failures)
 	_check_buffer_expiry(failures)
 	_check_hit_stun_clears_buffer(failures)
 	_check_stamina_on_buffered_attack(failures)
@@ -49,16 +49,12 @@ func _check_buffer_defaults(failures: Array[String]) -> void:
 		failures.append("buffer_duration expected 0.20")
 	if not is_equal_approx(buffer.attack_to_attack, 0.50):
 		failures.append("attack_to_attack expected 0.50")
-	if not is_equal_approx(buffer.attack_to_slip, 0.35):
-		failures.append("attack_to_slip expected 0.35")
+	if not is_equal_approx(buffer.attack_to_evade, 0.35):
+		failures.append("attack_to_evade expected 0.35")
 	if not is_equal_approx(buffer.attack_to_guard, 0.25):
 		failures.append("attack_to_guard expected 0.25")
-	if not is_equal_approx(buffer.slip_to_attack, 0.70):
-		failures.append("slip_to_attack expected 0.70")
-	if not is_equal_approx(buffer.slip_to_slip, 0.70):
-		failures.append("slip_to_slip expected 0.70")
-	if not is_equal_approx(buffer.slip_to_guard, 0.65):
-		failures.append("slip_to_guard expected 0.65")
+	if "slip_to_attack" in buffer or "slip_to_slip" in buffer:
+		failures.append("Legacy slip_to_* cancel thresholds must be removed")
 	buffer.queue_free()
 
 
@@ -81,11 +77,11 @@ func _check_scene_wiring(failures: Array[String]) -> void:
 	var attack = scene.get_node_or_null("PlayerAttackState")
 	if attack == null or not attack.has_method("get_recovery_progress"):
 		failures.append("PlayerAttackState missing recovery progress API")
-	var action = scene.get_node_or_null("PlayerActionState")
-	if action == null or not action.has_method("get_slip_progress"):
-		failures.append("PlayerActionState missing slip progress API")
-	if action == null or not action.has_method("unlock_for_next_action"):
-		failures.append("PlayerActionState missing unlock_for_next_action")
+	var evade = scene.get_node_or_null("PlayerEvade")
+	if evade == null:
+		failures.append("PlayerEvade missing from game.tscn")
+	elif not evade.has_method("try_begin_window"):
+		failures.append("PlayerEvade missing try_begin_window")
 	scene.free()
 
 
@@ -129,7 +125,6 @@ func _make_player_attack_bundle() -> Dictionary:
 	action_state.player_stamina = stamina
 	action_state.hit_stun = hit_stun
 	action_state.print_state_changes = false
-	action_state.slip_duration = 0.20
 	action_state._ready()
 
 	return {
@@ -209,7 +204,6 @@ func _check_attack_buffer_executes_in_window(failures: Array[String]) -> void:
 
 	## Simulate combat_prototype cancel resolve
 	attack.force_end_for_cancel()
-	action.unlock_for_next_action()
 	var before := stamina.current_stamina
 	if not action.can_attack():
 		failures.append("Action not idle after unlock for buffered K")
@@ -231,47 +225,60 @@ func _check_cancel_threshold_order(failures: Array[String]) -> void:
 	var buffer := BufferType.new()
 	if not (
 		buffer.attack_to_guard
-		< buffer.attack_to_slip
-		and buffer.attack_to_slip < buffer.attack_to_attack
+		< buffer.attack_to_evade
+		and buffer.attack_to_evade < buffer.attack_to_attack
 	):
 		failures.append(
-			"Expected guard < slip < attack cancel thresholds (%.2f / %.2f / %.2f)"
-			% [buffer.attack_to_guard, buffer.attack_to_slip, buffer.attack_to_attack]
+			"Expected guard < evade < attack cancel thresholds (%.2f / %.2f / %.2f)"
+			% [buffer.attack_to_guard, buffer.attack_to_evade, buffer.attack_to_attack]
 		)
 	buffer.queue_free()
 
 
-func _check_slip_progress_and_chain(failures: Array[String]) -> void:
+func _check_evade_window_and_attack_cancel(failures: Array[String]) -> void:
+	const PlayerEvadeType = preload("res://scripts/player_evade.gd")
 	var bag := _make_player_attack_bundle()
+	var stamina: StaminaType = bag["stamina"]
+	var attack: AttackStateType = bag["attack"]
 	var action: ActionStateType = bag["action"]
-	if not action.try_start_evasion(CombatInputType.DefenseType.SLIP_LEFT):
-		failures.append("Slip left failed to start")
+	var evade := PlayerEvadeType.new()
+	evade.player_stamina = stamina
+
+	## Continuous evade: no exclusive slip state — attack available while moving.
+	evade.set_movement_direction(PlayerEvadeType.Direction.LEFT)
+	if not action.can_attack():
+		failures.append("Evade movement must not block Attack")
+	if not evade.try_begin_window(PlayerEvadeType.Direction.LEFT):
+		failures.append("Evade window failed to start")
+	## Evade → Attack: ends window via combat path; here attack still possible
+	if not attack.try_start_attack(0):
+		failures.append("Evade → Attack should be available without slip recovery")
+	attack.force_end_for_cancel()
+
+	## Attack recovery cancel into evade at 35%
+	## Use longer recovery so we can land inside the cancel window.
+	var data: AttackDataType = attack.get_attack_data(0)
+	data.recovery_time = 0.60
+	if not attack.try_start_attack(0):
+		failures.append("Attack restart failed")
 		_free_bag(bag)
+		evade.queue_free()
 		return
-	_pump([action], 0.02, 8)
-	var prog := action.get_slip_progress()
-	if prog < 0.70:
-		_pump([action], 0.02, 4)
-		prog = action.get_slip_progress()
-	if prog < 0.70:
-		failures.append("Slip progress did not reach 0.70 (%.2f)" % prog)
-		_free_bag(bag)
-		return
-	## Cancel into opposite slip — old evade window must end
-	action.unlock_for_next_action()
-	if action.is_evasion_active():
-		failures.append("Old slip evade window still active after unlock")
-	if not action.try_start_evasion(CombatInputType.DefenseType.SLIP_RIGHT):
-		failures.append("Slip -> Slip chain failed")
-	elif not action.is_evasion_active():
-		failures.append("New slip should open a fresh evade window")
-	## Slip -> Attack at 70%
-	_pump([action], 0.02, 8)
-	if action.get_slip_progress() >= 0.70:
-		action.unlock_for_next_action()
-		if not bag["attack"].try_start_attack(0):
-			failures.append("Slip -> Attack chain failed")
+	## startup 0.10 + active 0.08 = 0.18 → then recovery
+	_pump([attack, action], 0.02, 12)
+	if not attack.is_recovering():
+		failures.append("Expected recovery for attack_to_evade")
+	elif attack.get_recovery_progress() < 0.35:
+		_pump([attack, action], 0.02, 12)
+	if attack.is_recovering() and attack.get_recovery_progress() >= 0.35:
+		attack.force_end_for_cancel()
+		evade._retrigger_remaining = 0.0
+		if not evade.try_begin_window(PlayerEvadeType.Direction.RIGHT):
+			failures.append("Attack recovery >=35% should allow evade window")
+	elif not attack.is_recovering():
+		failures.append("Left recovery before attack_to_evade window")
 	_free_bag(bag)
+	evade.queue_free()
 
 
 func _check_buffer_expiry(failures: Array[String]) -> void:
@@ -298,7 +305,7 @@ func _check_hit_stun_clears_buffer(failures: Array[String]) -> void:
 	if buffer.has_buffered():
 		failures.append("Buffer should clear on hit stun path")
 	## Knockdown path equivalent
-	buffer.buffer_slip_left()
+	buffer.buffer_evade(CombatInputType.EvadeDirection.LEFT)
 	buffer.clear()
 	if buffer.has_buffered():
 		failures.append("Buffer should clear on knockdown path")
@@ -317,7 +324,6 @@ func _check_stamina_on_buffered_attack(failures: Array[String]) -> void:
 		failures.append("Setup: stamina should be insufficient for left straight")
 	## combat_prototype path: affordability gates buffered execute
 	attack.force_end_for_cancel()
-	bag["action"].unlock_for_next_action()
 	if bag["action"].can_attack() and stamina.can_afford(data.stamina_cost):
 		failures.append("Insufficient stamina must block buffered attack execute")
 	elif bag["action"].can_attack() and attack.try_start_attack(0):
@@ -353,9 +359,13 @@ func _check_stale_guard(failures: Array[String]) -> void:
 
 
 func _check_guard_release_immediate_actions(failures: Array[String]) -> void:
+	const PlayerEvadeType = preload("res://scripts/player_evade.gd")
 	var bag := _make_player_attack_bundle()
 	var action: ActionStateType = bag["action"]
-	var evade_before := action.slip_duration
+	var stamina: StaminaType = bag["stamina"]
+	var evade := PlayerEvadeType.new()
+	evade.player_stamina = stamina
+	var window_before := evade.evade_window
 	action.set_guard_held(true)
 	if action.current_state != ActionStateType.PlayerState.GUARD:
 		failures.append("Guard ON failed")
@@ -364,14 +374,15 @@ func _check_guard_release_immediate_actions(failures: Array[String]) -> void:
 		failures.append("Guard OFF must be immediate (no recovery)")
 	if not action.can_attack():
 		failures.append("Guard → Attack not immediately available")
-	if not action.try_start_evasion(CombatInputType.DefenseType.SLIP_RIGHT):
-		failures.append("Guard → Slip not immediately available")
-	## Guard path must not mutate evade gameplay window export
-	if not is_equal_approx(action.slip_duration, evade_before):
-		failures.append("Guard release mutated slip_duration")
-	if not action.is_evasion_active():
-		failures.append("Fresh Slip after Guard must open evade window")
+	evade.set_movement_direction(PlayerEvadeType.Direction.RIGHT)
+	if not evade.try_begin_window(PlayerEvadeType.Direction.RIGHT):
+		failures.append("Guard → Evade window not immediately available")
+	if not is_equal_approx(evade.evade_window, window_before):
+		failures.append("Guard release mutated evade_window")
+	if not evade.is_window_active():
+		failures.append("Fresh Evade after Guard must open window")
 	_free_bag(bag)
+	evade.queue_free()
 
 
 func _check_opponent_recovery_cancel(failures: Array[String]) -> void:

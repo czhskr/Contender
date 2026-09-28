@@ -34,6 +34,7 @@ signal difficulty_changed(settings: DifficultyType)
 @export var knockdown_manager: KnockdownManagerType
 @export var round_manager: RoundManagerType
 @export var opponent_hit_stun: Node
+@export var finisher_impact_freeze: Node
 
 @export_group("Recovery Cancel")
 ## Attack → Attack cancel progress on Recovery (same principle as player).
@@ -92,6 +93,9 @@ func _process(delta: float) -> void:
 
 
 func _can_think() -> bool:
+	if finisher_impact_freeze != null and finisher_impact_freeze.has_method("is_blocking_combat"):
+		if finisher_impact_freeze.is_blocking_combat():
+			return false
 	if knockdown_manager != null and not knockdown_manager.is_fighting():
 		return false
 	if round_manager != null and not round_manager.can_accept_combat_input():

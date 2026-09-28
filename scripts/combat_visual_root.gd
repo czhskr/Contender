@@ -2,11 +2,13 @@ class_name CombatVisualRoot
 extends Node2D
 
 ## Fight visuals root. HUD stays outside — only this subtree shakes / parallaxes.
+## Continuous Evade: world parallax tracks PlayerEvade movement target (no slip recovery).
 
 const ActionStateType = preload("res://scripts/player_action_state.gd")
 const OffenseResolverType = preload("res://scripts/player_offense_resolver.gd")
 const DefenseResolverType = preload("res://scripts/player_defense_resolver.gd")
 const KnockdownManagerType = preload("res://scripts/knockdown_manager.gd")
+const PlayerEvadeType = preload("res://scripts/player_evade.gd")
 
 @export var viewport_size := Vector2(1152, 648)
 
@@ -15,16 +17,31 @@ const KnockdownManagerType = preload("res://scripts/knockdown_manager.gd")
 @export var opponent_visual: Node2D
 @export var player_visual: Node2D
 @export var player_action_state: ActionStateType
+@export var player_evade: PlayerEvadeType
 @export var offense_resolver: OffenseResolverType
 @export var defense_resolver: DefenseResolverType
 @export var knockdown_manager: KnockdownManagerType
 
-@export_group("World Parallax (Slip)")
-## Closer layers move more. Slip Left → world +X; Slip Right → world -X.
-@export_range(0.0, 200.0, 1.0, "or_greater") var parallax_crowd_x := 10.0
-@export_range(0.0, 200.0, 1.0, "or_greater") var parallax_ring_x := 24.0
-@export_range(0.0, 200.0, 1.0, "or_greater") var parallax_opponent_x := 48.0
-@export_range(0.01, 1.0, 0.01, "or_greater") var parallax_tween_seconds := 0.10
+@export_group("World Parallax (Horizontal)")
+## Closer layers move more. Evade Left → world +X; Evade Right → world -X.
+## Stronger than legacy Slip (10/24/48) because Player X translation is locked at 0.
+@export_range(0.0, 200.0, 1.0, "or_greater") var parallax_crowd_x := 20.0
+@export_range(0.0, 200.0, 1.0, "or_greater") var parallax_ring_x := 45.0
+@export_range(0.0, 200.0, 1.0, "or_greater") var parallax_opponent_x := 90.0
+
+@export_group("World Parallax (Down)")
+## Explicit S/DOWN look-down. Kept within pass-by stack budget.
+@export_range(0.0, 200.0, 1.0, "or_greater") var parallax_crowd_down_y := 10.0
+@export_range(0.0, 200.0, 1.0, "or_greater") var parallax_ring_down_y := 22.0
+@export_range(0.0, 200.0, 1.0, "or_greater") var parallax_opponent_down_y := 40.0
+
+@export_group("Parallax Motion")
+## Shared head-motion SmoothDamp time (velocity continuous across retargets).
+@export_range(0.01, 1.0, 0.01, "or_greater") var head_smooth_time := 0.12
+## Position-based weave dip near lateral center (-Y = world rises). Depth by layer.
+@export_range(0.0, 120.0, 1.0, "or_greater") var weave_depth_opponent := 45.0
+@export_range(0.0, 120.0, 1.0, "or_greater") var weave_depth_ring := 22.0
+@export_range(0.0, 120.0, 1.0, "or_greater") var weave_depth_crowd := 10.0
 
 @export_group("Hit Shake")
 @export_range(0.0, 64.0, 0.5, "or_greater") var opponent_hit_shake_strength := 3.0
@@ -33,40 +50,101 @@ const KnockdownManagerType = preload("res://scripts/knockdown_manager.gd")
 @export_range(0.01, 1.0, 0.01, "or_greater") var player_hit_shake_duration := 0.15
 
 @export_group("Evade Visual (does not change gameplay evade window)")
-## Keep Slip POV/parallax through opponent attack pose so EVADE doesn't look like a face-hit.
+## Opponent punch pass-by hold (does NOT lock Player continuous movement).
 @export_range(0.0, 2.0, 0.01, "or_greater") var evade_visual_hold_seconds := 0.20
-## Extra lateral shift on opponent punch when EVADE succeeds (visual-only).
 @export_range(0.0, 400.0, 1.0, "or_greater") var evade_passby_offset_x := 130.0
+## Modest so DOWN continuous + pass-by does not clip Opponent top (stack ≤ ~80).
+@export_range(0.0, 400.0, 1.0, "or_greater") var evade_down_passby_offset_y := 40.0
 
 var base_position := Vector2.ZERO
 var shake_offset := Vector2.ZERO
 
-var _parallax_tween: Tween
 var _shake_tween: Tween
 var _shake_token := 0
-## Invalidates in-flight world parallax tweens (slip cancel / chain).
-var _parallax_token := 0
-## After EVADE: hold slip-direction visuals until punch pose ends.
-var _evade_hold_active := false
 var _evade_hold_token := 0
-## +1 = Slip Left world, -1 = Slip Right world.
-var _evade_world_dir := 0.0
-var _last_slip_world_dir := 0.0
+var _passby_active := false
+
+## Composed layer offsets applied to BG / Opponent.
+var _crowd_parallax := Vector2.ZERO
+var _ring_parallax := Vector2.ZERO
+var _opponent_parallax := Vector2.ZERO
+
+## Shared continuous head-motion parameters (-1..+1 lateral, 0..1 down).
+## LEFT = +1 (world +X), RIGHT = -1 (world -X). Velocity is NOT reset on retarget.
+var _head_lateral := 0.0
+var _head_lateral_vel := 0.0
+var _head_lateral_target := 0.0
+var _head_down := 0.0
+var _head_down_vel := 0.0
+var _head_down_target := 0.0
+## 1 while LEFT/RIGHT dodge is the intent — enables center weave without resting at CENTER dip.
+var _weave_blend := 0.0
+var _weave_blend_vel := 0.0
+var _weave_blend_target := 0.0
+var _para_direction := 0
+
+## Finisher Impact Freeze: lock combat motion; keep current pose/offsets.
+var _finisher_freeze := false
+var _freeze_clear_shake_msec := 0
+var _freeze_shake_cleared := true
 
 
 func _ready() -> void:
 	base_position = position
 	_resolve_wired_nodes()
 	_apply_composed_position()
+	set_process(true)
 
-	if player_action_state != null:
-		player_action_state.state_changed.connect(_on_player_action_state_changed)
+	if player_evade != null and player_evade.has_signal("movement_target_changed"):
+		player_evade.movement_target_changed.connect(_on_evade_movement_target_changed)
+	elif player_visual != null and player_visual.has_signal("evade_pov_target_changed"):
+		player_visual.evade_pov_target_changed.connect(_on_evade_movement_target_changed)
+
 	if offense_resolver != null:
 		offense_resolver.attack_hit.connect(_on_player_attack_hit)
 	if defense_resolver != null:
 		defense_resolver.attack_resolved.connect(_on_opponent_attack_resolved)
 	if knockdown_manager != null:
 		knockdown_manager.match_state_changed.connect(_on_match_state_changed)
+
+
+func _process(delta: float) -> void:
+	if _finisher_freeze:
+		if not _freeze_shake_cleared and Time.get_ticks_msec() >= _freeze_clear_shake_msec:
+			_freeze_shake_cleared = true
+			_clear_shake()
+		return
+
+	_head_lateral = _smooth_damp(
+		_head_lateral, _head_lateral_target, 0, head_smooth_time, delta
+	)
+	_head_down = _smooth_damp(
+		_head_down, _head_down_target, 1, head_smooth_time, delta
+	)
+	_weave_blend = _smooth_damp(
+		_weave_blend, _weave_blend_target, 2, head_smooth_time, delta
+	)
+	_compose_head_parallax()
+	_apply_parallax_offsets()
+
+
+## Freeze combat visuals on finisher (breathing / tween motion). Overlay effects stay separate.
+func set_finisher_freeze(active: bool) -> void:
+	_finisher_freeze = active
+	if active:
+		_clear_passby_only()
+		if player_visual != null and player_visual.has_method("set_finisher_freeze"):
+			player_visual.set_finisher_freeze(true)
+		if opponent_visual != null and opponent_visual.has_method("set_finisher_freeze"):
+			opponent_visual.set_finisher_freeze(true)
+		_freeze_clear_shake_msec = Time.get_ticks_msec() + 120
+		_freeze_shake_cleared = false
+	else:
+		_freeze_shake_cleared = true
+		if player_visual != null and player_visual.has_method("set_finisher_freeze"):
+			player_visual.set_finisher_freeze(false)
+		if opponent_visual != null and opponent_visual.has_method("set_finisher_freeze"):
+			opponent_visual.set_finisher_freeze(false)
 
 
 func _resolve_wired_nodes() -> void:
@@ -76,6 +154,8 @@ func _resolve_wired_nodes() -> void:
 		opponent_visual = get_node_or_null("OpponentVisual")
 	if player_visual == null:
 		player_visual = get_node_or_null("PlayerVisual")
+	if player_evade == null:
+		player_evade = get_node_or_null("../PlayerEvade") as PlayerEvadeType
 
 
 func set_shake_offset(offset: Vector2) -> void:
@@ -87,96 +167,131 @@ func _apply_composed_position() -> void:
 	position = base_position + shake_offset
 
 
-func _on_player_action_state_changed(state: int) -> void:
-	match state:
-		ActionStateType.PlayerState.SLIP_LEFT:
-			_last_slip_world_dir = 1.0
-			_tween_world_parallax(1.0)
-		ActionStateType.PlayerState.SLIP_RIGHT:
-			_last_slip_world_dir = -1.0
-			_tween_world_parallax(-1.0)
+func _on_evade_movement_target_changed(_target: Vector2, direction: int) -> void:
+	if _finisher_freeze:
+		return
+	## Retarget shared head params — velocities intentionally NOT zeroed.
+	_para_direction = direction
+	match direction:
+		PlayerEvadeType.Direction.LEFT:
+			_head_lateral_target = 1.0
+			_head_down_target = 0.0
+			_weave_blend_target = 1.0
+		PlayerEvadeType.Direction.RIGHT:
+			_head_lateral_target = -1.0
+			_head_down_target = 0.0
+			_weave_blend_target = 1.0
+		PlayerEvadeType.Direction.DOWN:
+			_head_lateral_target = 0.0
+			_head_down_target = 1.0
+			_weave_blend_target = 0.0
 		_:
-			if _evade_hold_active and _evade_world_dir != 0.0:
-				## Gameplay slip ended, but EVADE punch is still on screen — keep offset.
-				_tween_world_parallax(_evade_world_dir)
-				return
-			_tween_world_parallax(0.0)
+			_head_lateral_target = 0.0
+			_head_down_target = 0.0
+			_weave_blend_target = 0.0
 
 
-func _tween_world_parallax(direction: float) -> void:
-	## direction: +1 Slip Left (world +X), -1 Slip Right (world -X), 0 = home.
-	## Opponent uses the largest magnitude and is never recentered — only additive.
-	_parallax_token += 1
-	var token := _parallax_token
-	if _parallax_tween != null and _parallax_tween.is_valid():
-		_parallax_tween.kill()
-	_parallax_tween = null
+func _compose_head_parallax() -> void:
+	## Shared lateral + explicit down + position-based weave near center.
+	## weave peaks at lateral≈0 while LEFT/RIGHT intent is active (blend→1).
+	## Resting CENTER (blend→0) has no permanent dip.
+	var abs_lat := absf(_head_lateral)
+	var weave_factor := (1.0 - abs_lat) * (1.0 - abs_lat) * _weave_blend
+	weave_factor *= 1.0 - clampf(_head_down, 0.0, 1.0)
 
-	var crowd_target := Vector2(parallax_crowd_x * direction, 0.0)
-	var ring_target := Vector2(parallax_ring_x * direction, 0.0)
-	var opp_target := Vector2(parallax_opponent_x * direction, 0.0)
+	var hx := _head_lateral
+	var down := _head_down
+	_crowd_parallax = Vector2(
+		hx * parallax_crowd_x,
+		-down * parallax_crowd_down_y - weave_factor * weave_depth_crowd
+	)
+	_ring_parallax = Vector2(
+		hx * parallax_ring_x,
+		-down * parallax_ring_down_y - weave_factor * weave_depth_ring
+	)
+	_opponent_parallax = Vector2(
+		hx * parallax_opponent_x,
+		-down * parallax_opponent_down_y - weave_factor * weave_depth_opponent
+	)
 
-	var crowd_from := Vector2.ZERO
-	var ring_from := Vector2.ZERO
-	var opp_from := Vector2.ZERO
+
+## channel: 0=lateral, 1=down, 2=weave_blend
+func _smooth_damp(
+	current: float,
+	target: float,
+	channel: int,
+	smooth_time: float,
+	delta: float
+) -> float:
+	var velocity := 0.0
+	match channel:
+		0:
+			velocity = _head_lateral_vel
+		1:
+			velocity = _head_down_vel
+		_:
+			velocity = _weave_blend_vel
+
+	var st := maxf(smooth_time, 0.0001)
+	var omega := 2.0 / st
+	var x := omega * delta
+	var exp := 1.0 / (1.0 + x + 0.48 * x * x + 0.235 * x * x * x)
+	var change := current - target
+	var temp := (velocity + omega * change) * delta
+	var new_vel := (velocity - omega * temp) * exp
+	var output := target + (change + temp) * exp
+	if (target - current > 0.0) == (output > target):
+		output = target
+		new_vel = 0.0
+
+	match channel:
+		0:
+			_head_lateral_vel = new_vel
+		1:
+			_head_down_vel = new_vel
+		_:
+			_weave_blend_vel = new_vel
+	return output
+
+
+## Test helper — set absolute head targets without gameplay (smoke).
+func _set_parallax_targets_for_direction(direction: int) -> void:
+	_on_evade_movement_target_changed(Vector2.ZERO, direction)
+	## Snap for unit tests that do not pump frames.
+	_head_lateral = _head_lateral_target
+	_head_down = _head_down_target
+	_weave_blend = _weave_blend_target
+	_head_lateral_vel = 0.0
+	_head_down_vel = 0.0
+	_weave_blend_vel = 0.0
+	_compose_head_parallax()
+
+
+func _apply_parallax_offsets() -> void:
 	if background_visual != null:
-		crowd_from = background_visual.crowd_parallax_offset
-		ring_from = background_visual.ring_parallax_offset
-	if opponent_visual != null and "parallax_offset" in opponent_visual:
-		opp_from = opponent_visual.parallax_offset
-
-	_parallax_tween = create_tween()
-	_parallax_tween.set_parallel(true)
-	_parallax_tween.set_ease(Tween.EASE_IN_OUT)
-	_parallax_tween.set_trans(Tween.TRANS_SINE)
-	var dur := maxf(parallax_tween_seconds, 0.01)
-
-	if background_visual != null:
-		_parallax_tween.tween_method(
-			func(v: Vector2) -> void:
-				if token != _parallax_token:
-					return
-				if background_visual != null and background_visual.has_method("set_crowd_parallax"):
-					background_visual.set_crowd_parallax(v),
-			crowd_from,
-			crowd_target,
-			dur
-		)
-		_parallax_tween.tween_method(
-			func(v: Vector2) -> void:
-				if token != _parallax_token:
-					return
-				if background_visual != null and background_visual.has_method("set_ring_parallax"):
-					background_visual.set_ring_parallax(v),
-			ring_from,
-			ring_target,
-			dur
-		)
+		if background_visual.has_method("set_crowd_parallax"):
+			background_visual.set_crowd_parallax(_crowd_parallax)
+		if background_visual.has_method("set_ring_parallax"):
+			background_visual.set_ring_parallax(_ring_parallax)
 	if opponent_visual != null and opponent_visual.has_method("set_parallax_offset"):
-		_parallax_tween.tween_method(
-			func(v: Vector2) -> void:
-				if token != _parallax_token:
-					return
-				if opponent_visual != null and opponent_visual.has_method("set_parallax_offset"):
-					opponent_visual.set_parallax_offset(v),
-			opp_from,
-			opp_target,
-			dur
-		)
+		opponent_visual.set_parallax_offset(_opponent_parallax)
 
 
 func _reset_world_parallax_immediate() -> void:
-	_parallax_token += 1
-	if _parallax_tween != null and _parallax_tween.is_valid():
-		_parallax_tween.kill()
-	_parallax_tween = null
-	if background_visual != null:
-		if background_visual.has_method("set_crowd_parallax"):
-			background_visual.set_crowd_parallax(Vector2.ZERO)
-		if background_visual.has_method("set_ring_parallax"):
-			background_visual.set_ring_parallax(Vector2.ZERO)
-	if opponent_visual != null and opponent_visual.has_method("set_parallax_offset"):
-		opponent_visual.set_parallax_offset(Vector2.ZERO)
+	_head_lateral = 0.0
+	_head_lateral_vel = 0.0
+	_head_lateral_target = 0.0
+	_head_down = 0.0
+	_head_down_vel = 0.0
+	_head_down_target = 0.0
+	_weave_blend = 0.0
+	_weave_blend_vel = 0.0
+	_weave_blend_target = 0.0
+	_para_direction = 0
+	_crowd_parallax = Vector2.ZERO
+	_ring_parallax = Vector2.ZERO
+	_opponent_parallax = Vector2.ZERO
+	_apply_parallax_offsets()
 
 
 func _on_player_attack_hit(
@@ -186,12 +301,12 @@ func _on_player_attack_hit(
 	was_knockdown: bool,
 	result: int
 ) -> void:
-	if was_knockdown:
-		_clear_shake()
-		return
+	## Finisher: keep punch impact shake during freeze; DOWN visual waits for KnockdownManager.
 	if result != OffenseResolverType.ResolveResult.HIT:
 		return
 	_play_shake(opponent_hit_shake_strength, opponent_hit_shake_duration)
+	if was_knockdown:
+		return
 
 
 func _on_opponent_attack_resolved(
@@ -200,39 +315,36 @@ func _on_opponent_attack_resolved(
 	_player_meter: float,
 	was_knockdown: bool
 ) -> void:
-	if was_knockdown:
-		_clear_evade_visual_hold()
-		_clear_shake()
-		return
 	if result == DefenseResolverType.DefenseResult.EVADE:
-		_begin_evade_visual_hold()
+		if was_knockdown:
+			return
+		_begin_evade_passby_presentation()
 		return
 	if result != DefenseResolverType.DefenseResult.HIT:
 		return
-	_clear_evade_visual_hold()
+	_clear_passby_only()
 	_play_shake(player_hit_shake_strength, player_hit_shake_duration)
-
-
-func _begin_evade_visual_hold() -> void:
-	var world_dir := _resolve_evade_world_dir()
-	if world_dir == 0.0:
+	if was_knockdown:
 		return
 
-	_evade_hold_active = true
-	_evade_world_dir = world_dir
+
+## Opponent punch pass-by only — never locks Player continuous POV movement.
+func _begin_evade_passby_presentation() -> void:
+	if _finisher_freeze:
+		return
+	var offset := _resolve_passby_offset()
+	if offset == Vector2.ZERO:
+		return
+
+	_passby_active = true
 	_evade_hold_token += 1
 	var token := _evade_hold_token
 
-	## Reinforce slip-direction world offset at full magnitude.
-	_tween_world_parallax(world_dir)
-
-	## Player POV: Slip Left = -1, Slip Right = +1
-	var pov_dir := -1 if world_dir > 0.0 else 1
-	if player_visual != null and player_visual.has_method("hold_evade_slip_pov"):
-		player_visual.hold_evade_slip_pov(pov_dir)
-
-	if opponent_visual != null and opponent_visual.has_method("apply_evade_passby"):
-		opponent_visual.apply_evade_passby(world_dir, evade_passby_offset_x)
+	if opponent_visual != null and opponent_visual.has_method("apply_evade_passby_offset"):
+		opponent_visual.apply_evade_passby_offset(offset)
+	elif opponent_visual != null and opponent_visual.has_method("apply_evade_passby"):
+		## Fallback for older signature (horizontal only).
+		opponent_visual.apply_evade_passby(signf(offset.x), absf(offset.x))
 
 	var hold := evade_visual_hold_seconds
 	if opponent_visual != null and "attack_pose_hold_seconds" in opponent_visual:
@@ -241,47 +353,35 @@ func _begin_evade_visual_hold() -> void:
 	get_tree().create_timer(hold).timeout.connect(
 		func() -> void:
 			if token == _evade_hold_token:
-				_end_evade_visual_hold()
+				_clear_passby_only()
 	)
 
 
-func _resolve_evade_world_dir() -> float:
-	if player_action_state != null:
-		match player_action_state.current_state:
-			ActionStateType.PlayerState.SLIP_LEFT:
-				return 1.0
-			ActionStateType.PlayerState.SLIP_RIGHT:
-				return -1.0
-	## Slip may already have ended at resolve time — use last known direction.
-	return _last_slip_world_dir
+func _resolve_passby_offset() -> Vector2:
+	var dir := PlayerEvadeType.Direction.NONE
+	if player_evade != null:
+		dir = player_evade.last_window_direction
+		if dir == PlayerEvadeType.Direction.NONE:
+			dir = player_evade.window_direction
+		if dir == PlayerEvadeType.Direction.NONE:
+			dir = player_evade.movement_direction
+	match dir:
+		PlayerEvadeType.Direction.LEFT:
+			return Vector2(evade_passby_offset_x, 0.0)
+		PlayerEvadeType.Direction.RIGHT:
+			return Vector2(-evade_passby_offset_x, 0.0)
+		PlayerEvadeType.Direction.DOWN:
+			## Negative Y: Straight passes above the ducked POV.
+			return Vector2(0.0, -evade_down_passby_offset_y)
+		_:
+			return Vector2.ZERO
 
 
-func _end_evade_visual_hold() -> void:
-	_evade_hold_active = false
-	_evade_world_dir = 0.0
+func _clear_passby_only() -> void:
+	_evade_hold_token += 1
+	_passby_active = false
 	if opponent_visual != null and opponent_visual.has_method("clear_evade_passby"):
 		opponent_visual.clear_evade_passby()
-	if player_visual != null and player_visual.has_method("release_evade_slip_pov"):
-		player_visual.release_evade_slip_pov()
-	## Return home unless player is mid-slip again.
-	if player_action_state != null:
-		match player_action_state.current_state:
-			ActionStateType.PlayerState.SLIP_LEFT:
-				_tween_world_parallax(1.0)
-				return
-			ActionStateType.PlayerState.SLIP_RIGHT:
-				_tween_world_parallax(-1.0)
-				return
-	_tween_world_parallax(0.0)
-
-
-func _clear_evade_visual_hold() -> void:
-	_evade_hold_token += 1
-	if not _evade_hold_active and _evade_world_dir == 0.0:
-		if opponent_visual != null and opponent_visual.has_method("clear_evade_passby"):
-			opponent_visual.clear_evade_passby()
-		return
-	_end_evade_visual_hold()
 
 
 func _on_match_state_changed(state: int) -> void:
@@ -289,18 +389,17 @@ func _on_match_state_changed(state: int) -> void:
 		state == KnockdownManagerType.MatchState.PLAYER_DOWN
 		or state == KnockdownManagerType.MatchState.OPPONENT_DOWN
 		or state == KnockdownManagerType.MatchState.FINAL_KO
+		or state == KnockdownManagerType.MatchState.FIGHTING
 	):
-		_clear_evade_visual_hold()
-		_clear_shake()
-		_reset_world_parallax_immediate()
-	elif state == KnockdownManagerType.MatchState.FIGHTING:
-		_clear_evade_visual_hold()
+		_clear_passby_only()
 		_clear_shake()
 		_reset_world_parallax_immediate()
 
 
 func _play_shake(strength: float, duration: float) -> void:
-	## Replace any in-flight shake so offsets never accumulate.
+	## During freeze hold (after brief impact window), do not keep shaking.
+	if _finisher_freeze and _freeze_shake_cleared:
+		return
 	_shake_token += 1
 	var token := _shake_token
 	if _shake_tween != null and _shake_tween.is_valid():

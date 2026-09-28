@@ -100,6 +100,16 @@ func can_accept_combat_input() -> bool:
 	return round_state == RoundState.FIGHTING and not timer_paused
 
 
+## Presentation freeze before KnockdownManager starts Count (finisher slow-mo).
+func pause_for_finisher() -> void:
+	if round_state != RoundState.FIGHTING:
+		return
+	timer_paused = true
+	if print_events:
+		print("Round timer paused (finisher)")
+	_emit_hud()
+
+
 func is_match_active() -> bool:
 	return round_state in [
 		RoundState.FIGHTING,

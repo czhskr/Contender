@@ -33,32 +33,45 @@
 | `combat_right_straight` | **K** | Right Straight |
 | `combat_left_hook` | **Shift+J** | Left Hook |
 | `combat_right_hook` | **Shift+K** | Right Hook |
-| `combat_slip_left` | **A** | Slip Left |
-| `combat_slip_right` | **D** | Slip Right |
+| `combat_slip_left` | **A** | Evade Left (movement + timing) |
+| `combat_evade_down` | **S** | Evade Down (movement + timing) |
+| `combat_slip_right` | **D** | Evade Right (movement + timing) |
 | `combat_high_guard` | **Space** | High Guard (hold) |
 | `debug_force_player_knockdown` | F1 | 디버그 |
 | `debug_force_opponent_knockdown` | F2 | 디버그 |
 
-처리: `scripts/player_combat_input.gd` → `PlayerActionState` / `PlayerAttackState`.
+처리: `scripts/player_combat_input.gd` → `PlayerEvade` / `PlayerActionState` / `PlayerAttackState`.
 
-### 방어 입력 구조 (`player_combat_input.gd`)
-
-세 경로가 다르며, 하나로 묶인 `DefenseType` 상태가 아니다.
+### 방어 입력 구조 (`player_combat_input.gd` + `player_evade.gd`)
 
 | 동작 | 코드 경로 | 비고 |
 |---|---|---|
-| **Slip Left / Right** | `DefenseType` enum (`SLIP_LEFT` / `SLIP_RIGHT`) → `defense_requested` | enum 값은 Slip만 |
-| **High Guard** | Space **hold** → `is_guarding` + `guard_changed(is_guarding)` | `DefenseType`에 없음 |
-| **(무방비)** | Slip/Guard 미사용 시의 Idle | 별도 defense state / enum 값 **없음** |
+| **Continuous Evade (A/S/D)** | `EvadeDirection` LEFT/DOWN/RIGHT → `evade_pressed` + `evade_hold_changed` → `PlayerEvade` | Movement와 Timing 분리 |
+| **High Guard** | Space **hold** → `is_guarding` + `guard_changed` → `PlayerActionState.GUARD` | Evade와 독립 |
+| **(무방비)** | Evade Window 비활성 + Guard OFF | HIT |
 
-AI의 `"NONE"`은 방어를 선택하지 않은 **decision 결과 문자열**이다. `DefenseType`이나 전용 defense state가 아니다.
+#### Continuous Evade (Player)
+
+- **Movement**: A/S/D hold → small POV target offset + World parallax. Recovery / post-lock **없음**. `move_toward` / weave curve smoothing.
+  - Player POV LEFT/RIGHT `(0, +4)` / DOWN `(0, +10)` / release → CENTER. **Player X = 0** (full-frame clipping 방지).
+  - LEFT↔RIGHT: World shared head-motion SmoothDamp + position-based weave dip. Presentation only.
+  - Horizontal World: Crowd **20** / Ring **45** / Opponent **90**.
+- **Timing Window**: 유효 press 시 `evade_window = 0.18`, `evade_stamina_cost = 4`, `evade_retrigger_interval = 0.12`
+- Stamina 부족이어도 **Movement는 허용**, Window만 거부
+- Hold 중 자동 재발동 없음. OS key-repeat 무시
+- Attack Startup/Active: Gameplay Evade 금지. Recovery `attack_to_evade = 0.35` 이후 cancel 가능
+- Evade → Attack / Guard: slip recovery 없이 즉시 가능 (Attack 시작 시 window end + POV CENTER)
+- `PlayerActionState` = IDLE / ATTACKING / GUARD 만 (SLIP exclusive state 제거)
+
+AI의 `"NONE"`은 방어를 선택하지 않은 **decision 결과 문자열**이다. Opponent AI Slip은 기존 one-shot 구조 유지.
 
 ### 복구 금지 (제거됨)
 
 다음 입력/시스템은 **의도적으로 제거**되었다. 다시 넣지 말 것.
 
-- **Duck** (`combat_duck` / `DefenseType.DUCK`)
+- **Duck 전용 시스템** (`combat_duck` / 구 `DefenseType.DUCK` / Head-Body 연동) — `EvadeDirection.DOWN`은 Continuous Evade 방향일 뿐 Duck 복원이 아님
 - **Head / Body Target Toggle** (`combat_toggle_target` 등)
+- Player Slip recovery / post-lock / `slip_to_*` cancel thresholds
 
 ---
 
@@ -68,11 +81,12 @@ AI의 `"NONE"`은 방어를 선택하지 않은 **decision 결과 문자열**이
 
 ### 3.1 Stamina (행동 자원)
 
-- **자신의 공격 시작 시에만** 소모 (`stamina_cost`).
+- **자신의 공격 시작** 및 **유효 Evade Window 발동** 시에만 소모 (`stamina_cost` / `evade_stamina_cost`).
+- Visual Movement만으로는 Stamina 소모 없음.
 - HIT / BLOCK / EVADE로 **피격 Stamina 감소 없음**.
 - 피격으로 **regen delay reset 없음**.
 - 자연 회복·반복 공격 fatigue·Round Break `+25` 유지.
-- **Low Stamina Action Speed**: `ActionSpeedSettings` — 스태미나가 낮으면 행동 duration이 길어짐 (`minimum_action_speed` 기본 0.60).
+- **Low Stamina Action Speed**: `ActionSpeedSettings` — 공격 등 기존 대상. Continuous Evade Movement 속도에는 적용하지 않음.
 - Stamina는 **KO 확률·KD Meter 증가량에 직접 영향 없음**.
 
 노드: `PlayerStamina`, `OpponentStamina`.
@@ -92,18 +106,20 @@ Resolvers: `player_offense_resolver.gd`, `player_defense_resolver.gd`.
 |---|---|---|---|
 | **HIT** | `knockdown_damage` 전량 | **0.35s** (`HitStun`) | 변화 없음 |
 | **BLOCK** (High Guard) | × **0.25** | 없음 | 변화 없음 |
-| **EVADE** (Slip 성공) | **0** | 없음 | 변화 없음 |
+| **EVADE** (Evade Window 활성) | **0** | 없음 | 변화 없음 |
 
 동시 Active 트레이드: `HitResolveCoordinator`가 같은 프레임 처리를 조율.
 
 ### 3.4 Knockdown 이후
 
-1. KD ≥ 100 → `KnockdownManager.begin_*_knockdown()`
-2. Count **1~10** (`count_interval` 기본 1.0s)
+1. KD ≥ 100 → (결정타 HIT만) `FinisherImpactFreeze` → freeze 종료 → `KnockdownManager.begin_*_knockdown()`
+2. Count **1~10** (`count_interval` 기본 1.0s) — Freeze 종료 후에만 시작
 3. Knockdown 시작 시 **1회** `RecoveryChanceSettings.resolve_recovery(stamina)`
 4. 성공 → 지정 count에서 기립 → **KD Meter = 50**, Stamina **+15**, Fighting
 5. 실패 → Count 10 → **Final KO**
 6. Round Break: Stamina **+25**, KD Meter **−15** (`round_knockdown_meter_recovery`)
+
+Debug F1/F2 `force_knockdown`은 Finisher Freeze를 건너뛰고 즉시 begin.
 
 Random KO roll / Just / Counter / Head-Body KO 경로 **없음**.
 
@@ -112,7 +128,7 @@ Random KO roll / Just / Counter / Head-Body KO 경로 **없음**.
 1. 공격하면 Stamina가 줄어든다.  
 2. 맞으면 KD Meter가 오른다.  
 3. 가드하면 KD 증가가 크게 줄어든다.  
-4. Slip하면 공격을 완전히 피한다.  
+4. A/S/D Evade Window 중이면 공격을 완전히 피한다.  
 5. KD 100이면 다운된다.  
 6. 10 Count 안에 못 일어나면 KO다.
 
@@ -156,7 +172,7 @@ Random KO roll / Just / Counter / Head-Body KO 경로 **없음**.
 | **Just Attack** | 타이밍 보너스·배수 없음. |
 | **Counter / Counter Window** | `PlayerCounterWindow` 등 삭제. Slip 직후 공격도 일반 공격. |
 | **Head / Body Target** | 타깃 enum·토글·HUD·스탯 없음. |
-| **Duck** | 입력·액션·비주얼·AI 선택 없음. |
+| **Duck 전용 시스템** | `combat_duck` / Head-Body 연동 Duck 없음. `EvadeDirection.DOWN`만 존재. |
 | **피격 Stamina Damage** | `apply_stamina_damage` 제거. HIT이 Stamina를 깎지 않음. |
 
 ---
@@ -278,42 +294,65 @@ Screen shake / POV / parallax가 HUD·KD·Stamina 바를 흔들지 않게 하기
 
 - Idle만. Base → **+Y** → Base (위로 올라가지 않음).
 - 기본: `breathing_amplitude = 6`, `breathing_cycle_seconds = 1.6`.
-- Attack/Guard/Slip/Hit/Knockdown/KO에서 중단.
+- Attack/Guard/Evade movement/Hit/Knockdown/KO에서 중단.
 
-### Player Slip POV (`PlayerVisual`)
+### Continuous Evade POV (`PlayerVisual` + `PlayerEvade`)
 
-- 별도 Slip 스프라이트 없음. `pov_offset` 이동.
-- 기본: `slip_pov_x = 90`, `slip_pov_y = 24`, tween `0.10s`.
-- Left: `(-90, +24)` / Right: `(+90, +24)` — **절대 목표** (누적 drift 방지).
+- 별도 Evade 스프라이트 없음. Player **X translation = 0** (1536×864 full-frame ↔ 1152×648 exact fill → 어떤 X 이동도 clipping).
+- Player Y만 소량 SmoothDamp: LEFT/RIGHT `(0,+4)` / DOWN `(0,+10)`.
+- 회피감은 World/Opponent relative motion이 담당.
 
 ### World Parallax (`CombatVisualRoot` → BG + Opponent)
 
-- Player Slip Left → World **+X** / Slip Right → World **-X**.
-- Crowd **10** / Ring **24** / Opponent **48** px. tween `0.10s`.
+- Shared head-motion: `_head_lateral` / `_head_down` SmoothDamp (velocity continuity, no segment restart).
+- LEFT → World **+X** / RIGHT → World **-X** / DOWN → World **-Y**.
+- Horizontal: Crowd **20** / Ring **45** / Opponent **90**.
+- Down Y: Crowd **10** / Ring **22** / Opponent **40**.
+- LEFT↔RIGHT weave: position-based `(1-|lat|)^2 * blend` dip (−Y). Opp **45** / Ring **22** / Crowd **10**.
+- DOWN successful pass-by Y: **40** (LEFT/RIGHT pass-by X **130** 유지). Stack ≤ ~80.
 - Opponent는 `parallax_offset` additive.
 
 ### Hit Shake (`CombatVisualRoot`만)
 
 - Opponent HIT(플레이어가 때림): strength **3** / **0.10s**.
 - Player HIT(플레이어가 맞음): strength **7** / **0.15s**.
-- BLOCK / EVADE / Knockdown: shake 없음 (다운 시 clear).
+- BLOCK / EVADE: shake 없음.
+- **Finisher HIT**(결정타): 일반 HIT와 동일하게 짧은 impact shake → Freeze 중에는 shake 정지 → Knockdown 진입 시 clear.
+- Knockdown 상태 진입 시 shake clear.
 
 ### Knockdown Impact Shake (sprite-local, not screen)
 
 - Opponent: entry-only vertical jolt (`knockdown_impact_shake_y` **10** / count **3** / **0.18s**) then settle on drop **70px**.
 - Player POV: 동일 개념, 더 작게 (`y` **6**). Count 중 반복 없음.
 
+### Knockdown Finisher Impact Freeze (`FinisherImpactFreeze`)
+
+- **발동**: 실제 HIT로 KD Meter ≥ 100 → Knockdown 확정 시에만 1회. BLOCK / EVADE / 일반 HIT / 이미 DOWN / Final KO / Debug F1·F2 **제외**.
+- **Controller**: `scripts/finisher_impact_freeze.gd` (`game.tscn` → `FinisherImpactFreeze`).
+- **기본값**: `finisher_freeze_duration = 2.0` (wall-clock / `Time.get_ticks_msec`). **`Engine.time_scale` 사용 안 함** (항상 1.0 유지).
+- **순서**: HIT → KD full → Impact Freeze (pose 유지 + screen effect) → `KnockdownManager.begin_*_knockdown()` → impact shake/drop → Count.
+- Freeze 중: Round timer `pause_for_finisher()`, meter updates off, input/buffer/AI 차단, combat visual motion 정지, 결정타 attack/HIT pose 유지.
+- **Screen Effect**: `FinisherImpactEffect` (CanvasLayer) — 짧은 white flash only (`flash_peak_alpha` 0.35 / `flash_duration` 0.12). Flash 후 원본 화면. dark overlay 없음. HUD와 분리.
+- Freeze 종료 시: Player attacker면 Attack pose → Idle stance (`PlayerVisual.set_finisher_freeze(false)`). Opponent attacker는 기존 `cancel_and_disable()` IDLE re-emit으로 stance.
+- **Cleanup**: 정상 종료 / `cancel_and_restore` / `_exit_tree` / match 종료 시 overlay 제거.
+
 ### Additive compose
 
-- Player: `base + breathing + action + pov + knockdown + knockdown_impact`
+- Player: `base + breathing + action + pov(evade) + opponent_down_idle + knockdown + knockdown_impact`
 - Opponent: `base + breathing + action + parallax + knockdown + knockdown_impact`
 - Root: `base + shake`
-- Tween 분리: `_breathing_tween`, `_pov_tween`, `_parallax_tween`, `_shake_tween`, `_knockdown_impact_tween`
+- Continuous evade / down-idle: frame `move_toward`. Tweens: `_breathing_tween`, `_shake_tween`, `_knockdown_impact_tween`
+
+### Opponent Down Nstance Lowering (`PlayerVisual`)
+
+- Opponent DOWN/COUNT 시 Player Nstance에 `opponent_down_idle_offset_y` **+90** (additive, Inspector).
+- Finisher Freeze 중에는 미적용. Freeze 종료 → Nstance → Opponent Down 이후 적용.
+- Opponent Recover → smooth return to 0. Player Down 시 강제 0. Final KO(상대)는 lowered 유지 가능.
+- Guard gameplay와 무관 (presentation only).
 
 ### 아직 구현되지 않음 (완료라고 쓰지 말 것)
 
 - Telegraph / 공격 예고 연출
-- Knockdown Finisher Slow Motion (아래 Next Work)
 - 신규 전투 시스템, 별도 Damage/HP, Counter/Target 부활
 - Web export preset
 
@@ -336,12 +375,16 @@ Screen shake / POV / parallax가 HUD·KD·Stamina 바를 흔들지 않게 하기
 | `combat_prototype.gd` | 입력 HUD, KD 바, knockdown 시그널 연결 |
 | `player_combat_input.gd` | 입력 → 시그널 |
 | `player_attack_state.gd` / `opponent_attack_state.gd` | Startup/Active/Recovery |
-| `player_action_state.gd` / `opponent_action_state.gd` | Idle/Slip/Guard |
+| `player_action_state.gd` / `opponent_action_state.gd` | Player: Idle/Attacking/Guard · Opponent: Idle/Slip/Guard |
+| `player_evade.gd` | Continuous Evade Movement + Timing Window |
+| `player_action_buffer.gd` | Attack recovery cancel (attack_to_attack/evade/guard) |
 | `player_offense_resolver.gd` / `player_defense_resolver.gd` | HIT/BLOCK/EVADE + KD |
 | `hit_resolve_coordinator.gd` | 동시 Active 조율 |
 | `hit_stun.gd` | 0.35s 경직 |
 | `knockdown_meter.gd` | 0–100 미터 |
 | `knockdown_manager.gd` | Down / Count / Recovery / Final KO |
+| `finisher_impact_freeze.gd` | 결정타 Impact Freeze presentation (Count 앞단) |
+| `finisher_impact_effect.gd` | Freeze 시작 white flash (real-time; no dark hold overlay) |
 | `round_manager.gd` | 라운드·브레이크·타이머 |
 | `combat_stats.gd` / `combat_side_stats.gd` | 통계 |
 | `round_scorer.gd` / `match_decision.gd` | 채점·판정 |
@@ -354,7 +397,7 @@ Screen shake / POV / parallax가 HUD·KD·Stamina 바를 흔들지 않게 하기
 |---|---|
 | `combat_visual_root.gd` | Shake + Parallax 오케스트레이션 |
 | `background_visual.gd` | Crowd/Ring |
-| `player_visual.gd` | POV player + breathing + slip POV |
+| `player_visual.gd` | POV player + breathing + continuous evade POV + opponent-down idle |
 | `opponent_visual.gd` | Opponent poses + breathing + parallax offset |
 | `visual_display_layout.gd` | 1152×648 / 0.75 / opponent contain |
 | `visual_texture_resolver.gd` | 안전 텍스처 로드 |
@@ -399,6 +442,9 @@ godot --headless --path . -s res://balance_smoke_test.gd
 godot --headless --path . -s res://ai_pacing_smoke_test.gd
 godot --headless --path . -s res://hit_stun_smoke_test.gd
 godot --headless --path . -s res://visual_motion_smoke_test.gd
+godot --headless --path . -s res://action_buffer_smoke_test.gd
+godot --headless --path . -s res://continuous_evade_smoke_test.gd
+godot --headless --path . -s res://finisher_impact_freeze_smoke_test.gd
 godot --headless --path . --quit-after 2
 ```
 
@@ -409,7 +455,10 @@ godot --headless --path . --quit-after 2
 | `balance_smoke_test.gd` | Hit Stun 0.35, AI interval/follow-up, coordinator |
 | `ai_pacing_smoke_test.gd` | cooldown 0, follow-up, difficulty |
 | `hit_stun_smoke_test.gd` | HitStun 컴포넌트·씬 배선 |
-| `visual_motion_smoke_test.gd` | Breathing/POV/Parallax/Shake/Recovery 0.50·0.55 |
+| `visual_motion_smoke_test.gd` | Breathing/Continuous Evade POV/Parallax/Shake/Recovery |
+| `action_buffer_smoke_test.gd` | Action Buffer / Attack Recovery Cancel / Evade cancel |
+| `continuous_evade_smoke_test.gd` | Continuous Evade Movement/Timing/stamina/pass-by/down-idle |
+| `finisher_impact_freeze_smoke_test.gd` | 결정타 Impact Freeze / pose hold / Count 순서 / no time_scale |
 
 전투 판정을 우회하는 compatibility hack으로 테스트를 통과시키지 말 것.
 
@@ -444,16 +493,14 @@ godot --headless --path . --quit-after 2
 
 1. 전투를 **Stamina + Knockdown Meter**로 단순화 (Just/Counter/Duck/Head-Body/Random KO 제거).
 2. KD HUD, CombatStats/RoundScorer 정리, Straight-only AI 유지.
-3. Visual Motion: Idle Breathing, Slip POV, Parallax, Hit Shake.
-4. Opponent Straight Recovery: L **0.50** / R **0.55** (각각 +0.05s 수준).
-5. `player_health.gd` 제거 완료(파일 없음).
+3. Visual Motion: Idle Breathing, Continuous Evade POV, Parallax, Hit Shake, Knockdown impact shake, Opponent Down Nstance lowering.
+4. Action Buffer + Attack Recovery Cancel (`attack_to_evade` 0.35).
+5. **Continuous Evade** (A/S/D Movement + 0.18 Window + stamina 4 + retrigger 0.12).
+6. **Knockdown Finisher Impact Freeze** (`FinisherImpactFreeze`: real **2.0s** freeze + screen effect → 이후 Count). `Engine.time_scale` 미사용.
 
 ### Next Work / TODO (미구현 — 완료와 섞지 말 것)
 
 - [ ] **Telegraph** (Opponent 긴 Startup 대비 예고) — 아직 없음. 필요 여부는 플레이 후 결정.
-- [ ] **Knockdown Finisher Slow Motion** — KD Meter를 100 이상으로 만든 **결정타**에만 짧은 Slow Motion → 이후 Knockdown transition.  
-  일반 HIT에는 적용하지 않음.  
-  **구현 전 필수**: `Engine.time_scale`이 Hit Stun / Attack phase / Action Buffer / AI timing / Round timer / Knockdown Count / Visual Tween에 미치는 영향을 분리 검토. gameplay timer와 visual timer를 섞지 말 것. **지금 구현하지 말 것.**
 - [ ] Opponent Startup(0.8/0.9) 단축 여부 — **미결정**. 임의 변경 금지.
 - [ ] Web `export_presets.cfg` 구성.
 - [ ] Title/Result 플로우·메타 진행 강화 (전투 코어 외).
@@ -479,8 +526,8 @@ godot --headless --path . --quit-after 2
 ## 새 Agent 빠른 체크리스트
 
 1. Godot **4.7.2**로 `scenes/game.tscn` 실행.  
-2. 조작: J/K, Shift+J/K, A/D, Space.  
-3. Stamina 바와 KD 바가 DebugHUD에 있는지, Slip 시 월드 패럴랙스/플레이어 POV가 반대 방향인지.  
-4. 스모크 6종 + headless `game.tscn` 실행.  
+2. 조작: J/K, Shift+J/K, A/S/D, Space.  
+3. Stamina 바와 KD 바가 DebugHUD에 있는지, Evade 시 월드 패럴랙스/플레이어 POV가 연속 이동하는지.  
+4. 스모크 + headless `game.tscn` 실행.  
 5. 전투 규칙을 바꾸기 전에 이 문서 §3–§5와 해당 `.tres`를 재확인.  
 6. Visual만 손댈 때는 Combat Startup/Active/Recovery를 건드리지 말 것 (예외는 명시된 Recovery 튜닝뿐).

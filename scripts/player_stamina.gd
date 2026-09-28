@@ -92,3 +92,13 @@ func spend_for_attack(stamina_cost: float) -> bool:
 	stamina_changed.emit(current_stamina, max_stamina)
 	return true
 
+
+## Evade / non-attack spend: reset regen delay, no repeated-attack fatigue.
+func spend_for_action(stamina_cost: float) -> bool:
+	if not can_afford(stamina_cost):
+		return false
+	_time_since_regen_block = 0.0
+	current_stamina -= stamina_cost
+	stamina_changed.emit(current_stamina, max_stamina)
+	return true
+

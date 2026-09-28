@@ -14,7 +14,8 @@ const KnockdownManagerType = preload("res://scripts/knockdown_manager.gd")
 const CombatInputType = preload("res://scripts/player_combat_input.gd")
 
 signal visual_state_changed(state_name: String)
-signal slip_requested(direction: int) ## -1 left, +1 right, 0 ended
+## Emitted when continuous evade POV target changes (for world parallax).
+signal evade_pov_target_changed(target: Vector2, direction: int)
 
 enum Priority {
 	IDLE = 0,
@@ -26,6 +27,7 @@ enum Priority {
 @export var attack_state: AttackStateType
 @export var action_state: ActionStateType
 @export var knockdown_manager: KnockdownManagerType
+@export var player_evade: Node
 
 @export_group("Display")
 ## Shared by every Player pose. 1152/1536 = 648/864 = 0.75.
@@ -45,10 +47,15 @@ enum Priority {
 @export_range(0.0, 64.0, 0.5, "or_greater") var breathing_amplitude := 6.0
 @export_range(0.2, 6.0, 0.05, "or_greater") var breathing_cycle_seconds := 1.6
 
-@export_group("Slip POV")
-@export_range(0.0, 200.0, 1.0, "or_greater") var slip_pov_x := 90.0
-@export_range(0.0, 200.0, 1.0, "or_greater") var slip_pov_y := 24.0
-@export_range(0.01, 1.0, 0.01, "or_greater") var slip_pov_tween_seconds := 0.10
+@export_group("Continuous Evade POV")
+## Visual-only SmoothDamp time. Does not affect evade window.
+@export_range(0.01, 1.0, 0.01, "or_greater") var evade_smooth_time := 0.10
+## Legacy unused by world weave; kept for Inspector compatibility / tiny Y only.
+@export_range(0.0, 120.0, 1.0, "or_greater") var weave_depth := 0.0
+
+@export_group("Opponent Down Idle Lowering")
+@export_range(0.0, 200.0, 1.0, "or_greater") var opponent_down_idle_offset_y := 90.0
+@export_range(1.0, 2000.0, 1.0, "or_greater") var opponent_down_idle_move_speed := 320.0
 
 @export_group("Runtime Offsets (read-only during play)")
 var breathing_offset := Vector2.ZERO
@@ -74,18 +81,18 @@ var _priority := Priority.IDLE
 var _action_effect_offset := Vector2.ZERO
 var _knockdown_offset := Vector2.ZERO
 var _knockdown_impact_offset := Vector2.ZERO
+var _opponent_down_idle_offset := Vector2.ZERO
+var _opponent_down_idle_target := Vector2.ZERO
 var _knocked_down := false
 var _warned_resolution := false
+var _evade_target := Vector2.ZERO
+var _evade_direction := 0
+var _pov_velocity := Vector2.ZERO
 
 var _breathing_tween: Tween
-var _pov_tween: Tween
 var _knockdown_impact_tween: Tween
 var _breathing_active := false
-## Invalidates in-flight POV tweens (slip cancel / chain / knockdown).
-var _pov_token := 0
-## EVADE hold: keep slip POV after gameplay slip ends until punch pose finishes.
-var _evade_pov_hold := false
-var _evade_pov_dir := 0
+var _finisher_freeze := false
 var _knockdown_impact_token := 0
 
 
@@ -94,6 +101,7 @@ func _ready() -> void:
 		player_display_scale = DisplayLayout.compute_player_full_frame_scale()
 	_build_nodes()
 	_show_idle()
+	set_process(true)
 	if attack_state != null:
 		attack_state.state_changed.connect(_on_attack_state_changed)
 	if action_state != null:
@@ -101,6 +109,64 @@ func _ready() -> void:
 	if knockdown_manager != null:
 		knockdown_manager.match_state_changed.connect(_on_match_state_changed)
 		knockdown_manager.recovered.connect(_on_recovered)
+	if player_evade != null and player_evade.has_signal("movement_target_changed"):
+		player_evade.movement_target_changed.connect(_on_evade_movement_target_changed)
+
+
+func _process(delta: float) -> void:
+	if _finisher_freeze or _knocked_down:
+		return
+	var changed := false
+	## Tiny Y-only SmoothDamp. X is always forced to 0 (full-frame safe).
+	var target := Vector2(0.0, _evade_target.y)
+	if not pov_offset.is_equal_approx(target) or absf(_pov_velocity.y) > 0.01:
+		pov_offset = _smooth_damp_vec2(pov_offset, target, evade_smooth_time, delta)
+		pov_offset.x = 0.0
+		changed = true
+	if not _opponent_down_idle_offset.is_equal_approx(_opponent_down_idle_target):
+		_opponent_down_idle_offset = _opponent_down_idle_offset.move_toward(
+			_opponent_down_idle_target,
+			opponent_down_idle_move_speed * delta
+		)
+		changed = true
+	if changed:
+		_apply_composed_transform()
+
+
+func _on_evade_movement_target_changed(target: Vector2, direction: int) -> void:
+	## X locked — only Y from PlayerEvade targets is used.
+	_evade_target = Vector2(0.0, target.y)
+	_evade_direction = direction
+	evade_pov_target_changed.emit(_evade_target, direction)
+	if direction != CombatInputType.EvadeDirection.NONE:
+		_stop_breathing()
+	elif _priority == Priority.IDLE and not _knocked_down and not _finisher_freeze:
+		_start_breathing()
+
+
+func _smooth_damp_vec2(
+	current: Vector2,
+	target: Vector2,
+	smooth_time: float,
+	delta: float
+) -> Vector2:
+	## Critically-damped SmoothDamp. Velocity continuity across retargets.
+	if absf(current.y - target.y) < 0.05 and absf(_pov_velocity.y) < 1.0:
+		_pov_velocity.y = 0.0
+		return Vector2(0.0, target.y)
+	var st := maxf(smooth_time, 0.0001)
+	var omega := 2.0 / st
+	var x := omega * delta
+	var exp := 1.0 / (1.0 + x + 0.48 * x * x + 0.235 * x * x * x)
+	var change_y := current.y - target.y
+	var temp_y := (_pov_velocity.y + omega * change_y) * delta
+	_pov_velocity.y = (_pov_velocity.y - omega * temp_y) * exp
+	var output_y := target.y + (change_y + temp_y) * exp
+	## Prevent overshoot past target.
+	if (target.y - current.y > 0.0) == (output_y > target.y):
+		output_y = target.y
+		_pov_velocity.y = 0.0
+	return Vector2(0.0, output_y)
 
 
 func _build_nodes() -> void:
@@ -128,6 +194,9 @@ func _build_nodes() -> void:
 func _on_attack_state_changed(state: int, attack: int) -> void:
 	if _knocked_down:
 		return
+	if _finisher_freeze:
+		## Keep the contact / attack pose frozen for the finisher beat.
+		return
 	match state:
 		AttackStateType.AttackState.STARTUP:
 			_stop_breathing()
@@ -148,76 +217,64 @@ func _on_attack_state_changed(state: int, attack: int) -> void:
 func _on_action_state_changed(state: int) -> void:
 	if _knocked_down:
 		return
+	if _finisher_freeze:
+		return
 	if attack_state != null and attack_state.current_state != AttackStateType.AttackState.IDLE:
-		if state == ActionStateType.PlayerState.SLIP_LEFT:
-			_begin_slip_pov(-1)
-		elif state == ActionStateType.PlayerState.SLIP_RIGHT:
-			_begin_slip_pov(1)
-		elif state == ActionStateType.PlayerState.IDLE:
-			if not _evade_pov_hold:
-				_end_slip_pov()
 		return
 
 	match state:
 		ActionStateType.PlayerState.IDLE:
-			if _evade_pov_hold:
-				## Keep slipped POV while EVADE punch is still visible.
-				return
-			_end_slip_pov()
 			_show_idle()
 		ActionStateType.PlayerState.GUARD:
 			_stop_breathing()
-			if not _evade_pov_hold:
-				_end_slip_pov()
 			_show_guard()
-		ActionStateType.PlayerState.SLIP_LEFT:
-			_stop_breathing()
-			_begin_slip_pov(-1)
-			_set_visual_state("SLIP_LEFT")
-		ActionStateType.PlayerState.SLIP_RIGHT:
-			_stop_breathing()
-			_begin_slip_pov(1)
-			_set_visual_state("SLIP_RIGHT")
 		ActionStateType.PlayerState.ATTACKING:
 			_stop_breathing()
 
 
-## Called by CombatVisualRoot on EVADE — hold POV past gameplay slip end.
-func hold_evade_slip_pov(direction: int) -> void:
-	_evade_pov_hold = true
-	_evade_pov_dir = direction
-	_begin_slip_pov(direction)
-
-
-func release_evade_slip_pov() -> void:
-	_evade_pov_hold = false
-	_evade_pov_dir = 0
-	if action_state != null and action_state.is_evading():
+## Finisher Impact Freeze: lock current POV/attack pose; stop breathing/tweens.
+func set_finisher_freeze(active: bool) -> void:
+	var was_frozen := _finisher_freeze
+	_finisher_freeze = active
+	if active:
+		_stop_breathing()
+		_apply_composed_transform()
 		return
-	_end_slip_pov()
+
+	## Freeze exit (Player was attacker): release stale attack pose.
+	if was_frozen and not _knocked_down and _priority == Priority.ATTACK:
+		_show_idle()
 
 
 func _on_match_state_changed(state: int) -> void:
 	if state == KnockdownManagerType.MatchState.PLAYER_DOWN:
 		_knocked_down = true
-		_evade_pov_hold = false
+		_opponent_is_down_clear()
 		_stop_breathing()
 		_reset_pov_immediate()
 		_set_priority(Priority.KNOCKDOWN)
 		_knockdown_offset = Vector2(0.0, knockdown_drop_distance)
 		_show_pose("KNOCKDOWN", texture_idle)
 		_play_knockdown_impact_shake()
+	elif state == KnockdownManagerType.MatchState.OPPONENT_DOWN:
+		## After finisher: Player should already be Nstance; apply lowering.
+		if not _knocked_down and not _finisher_freeze:
+			_set_opponent_down_idle(true)
 	elif state == KnockdownManagerType.MatchState.FINAL_KO:
 		if knockdown_manager.downed_side == KnockdownManagerType.DownedSide.PLAYER:
 			_knocked_down = true
-			_evade_pov_hold = false
+			_opponent_is_down_clear()
 			_stop_breathing()
 			_reset_pov_immediate()
 			_set_priority(Priority.KNOCKDOWN)
 			_knockdown_offset = Vector2(0.0, knockdown_drop_distance)
-			## No second impact shake — entry shake already played on PLAYER_DOWN.
 			_show_pose("KO", texture_idle)
+		elif knockdown_manager.downed_side == KnockdownManagerType.DownedSide.OPPONENT:
+			## Keep lowered Nstance on opponent Final KO.
+			if not _knocked_down:
+				_set_opponent_down_idle(true)
 	elif state == KnockdownManagerType.MatchState.FIGHTING:
+		_set_opponent_down_idle(false)
 		if not _knocked_down and _priority == Priority.KNOCKDOWN:
 			_clear_knockdown_impact()
 			_knockdown_offset = Vector2.ZERO
@@ -225,7 +282,23 @@ func _on_match_state_changed(state: int) -> void:
 			_show_idle()
 
 
+func _set_opponent_down_idle(active: bool) -> void:
+	if _knocked_down:
+		active = false
+	_opponent_down_idle_target = (
+		Vector2(0.0, opponent_down_idle_offset_y) if active else Vector2.ZERO
+	)
+
+
+func _opponent_is_down_clear() -> void:
+	_opponent_down_idle_target = Vector2.ZERO
+	_opponent_down_idle_offset = Vector2.ZERO
+
+
 func _on_recovered(downed_side: int, _at_count: int) -> void:
+	if downed_side == KnockdownManagerType.DownedSide.OPPONENT:
+		_set_opponent_down_idle(false)
+		return
 	if downed_side != KnockdownManagerType.DownedSide.PLAYER:
 		return
 	_knocked_down = false
@@ -309,13 +382,14 @@ func _warn_if_unexpected_resolution(texture: Texture2D, path: String) -> void:
 func _apply_composed_transform() -> void:
 	if _anchor == null:
 		return
-	## base + breathing + action + POV + knockdown drop + impact shake
+	## base + breathing + action + evade POV + opponent-down idle + knockdown + impact
 	_anchor.rotation_degrees = 0.0
 	_anchor.position = (
 		asset_base_position
 		+ breathing_offset
 		+ _action_effect_offset
 		+ pov_offset
+		+ _opponent_down_idle_offset
 		+ _knockdown_offset
 		+ _knockdown_impact_offset
 	)
@@ -386,7 +460,7 @@ func _clear_knockdown_impact() -> void:
 
 
 func _start_breathing() -> void:
-	if _knocked_down or _priority != Priority.IDLE:
+	if _knocked_down or _finisher_freeze or _priority != Priority.IDLE:
 		return
 	if breathing_amplitude <= 0.0 or breathing_cycle_seconds <= 0.0:
 		return
@@ -423,57 +497,10 @@ func _set_breathing_offset(value: Vector2) -> void:
 	_apply_composed_transform()
 
 
-func _begin_slip_pov(direction: int) -> void:
-	## Absolute target — never accumulate. direction -1 left / +1 right.
-	_stop_breathing()
-	slip_requested.emit(direction)
-	var target := Vector2(slip_pov_x * float(direction), slip_pov_y)
-	_tween_pov_to(target)
-
-
-func _end_slip_pov() -> void:
-	slip_requested.emit(0)
-	_tween_pov_to(Vector2.ZERO)
-
-
-func _tween_pov_to(target: Vector2) -> void:
-	_pov_token += 1
-	var token := _pov_token
-	if _pov_tween != null and _pov_tween.is_valid():
-		_pov_tween.kill()
-	_pov_tween = null
-	var from := pov_offset
-	if from.is_equal_approx(target):
-		pov_offset = target
-		_apply_composed_transform()
-		return
-	_pov_tween = create_tween()
-	_pov_tween.set_ease(Tween.EASE_IN_OUT)
-	_pov_tween.set_trans(Tween.TRANS_SINE)
-	_pov_tween.tween_method(
-		func(v: Vector2) -> void:
-			if token != _pov_token:
-				return
-			pov_offset = v
-			_apply_composed_transform(),
-		from,
-		target,
-		maxf(slip_pov_tween_seconds, 0.01)
-	)
-	_pov_tween.finished.connect(
-		func() -> void:
-			if token != _pov_token:
-				return
-			pov_offset = target
-			_apply_composed_transform()
-	)
-
-
 func _reset_pov_immediate() -> void:
-	_pov_token += 1
-	if _pov_tween != null and _pov_tween.is_valid():
-		_pov_tween.kill()
-	_pov_tween = null
+	_evade_target = Vector2.ZERO
+	_evade_direction = CombatInputType.EvadeDirection.NONE
+	_pov_velocity = Vector2.ZERO
 	pov_offset = Vector2.ZERO
 	_apply_composed_transform()
 

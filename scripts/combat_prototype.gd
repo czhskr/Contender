@@ -6,9 +6,11 @@ const ATTACK_NAMES := [
 	"Left hook",
 	"Right hook",
 ]
-const DEFENSE_NAMES := [
-	"Slip left",
-	"Slip right",
+const EVADE_NAMES := [
+	"NONE",
+	"Evade Left",
+	"Evade Down",
+	"Evade Right",
 ]
 const ATTACK_STATE_NAMES := [
 	"IDLE",
@@ -19,8 +21,6 @@ const ATTACK_STATE_NAMES := [
 const PLAYER_STATE_NAMES := [
 	"IDLE",
 	"ATTACKING",
-	"SLIP LEFT",
-	"SLIP RIGHT",
 	"GUARD",
 ]
 const DEFENSE_RESULT_NAMES := ["HIT", "BLOCK", "EVADE"]
@@ -29,6 +29,7 @@ const DEFENSE_RESULT_NAMES := ["HIT", "BLOCK", "EVADE"]
 @onready var attack_state: Node = $PlayerAttackState
 @onready var stamina: Node = $PlayerStamina
 @onready var player_state: Node = $PlayerActionState
+@onready var player_evade: Node = $PlayerEvade
 @onready var action_buffer: Node = $PlayerActionBuffer
 @onready var opponent_stamina: Node = $OpponentStamina
 @onready var player_knockdown_meter: Node = $PlayerKnockdownMeter
@@ -43,6 +44,8 @@ const DEFENSE_RESULT_NAMES := ["HIT", "BLOCK", "EVADE"]
 @onready var opponent_hit_stun: Node = $OpponentHitStun
 @onready var opponent_action_state: Node = $OpponentActionState
 @onready var opponent_ai: Node = $OpponentAI
+@onready var finisher_impact_freeze: Node = $FinisherImpactFreeze
+@onready var combat_visual_root: Node = $CombatVisualRoot
 @onready var stamina_bar: ProgressBar = \
 	$DebugHUD/Panel/Margin/Content/PlayerStaminaBar
 @onready var stamina_value: Label = \
@@ -78,7 +81,8 @@ const DEFENSE_RESULT_NAMES := ["HIT", "BLOCK", "EVADE"]
 
 func _ready() -> void:
 	combat_input.attack_requested.connect(_on_attack_requested)
-	combat_input.defense_requested.connect(_on_defense_requested)
+	combat_input.evade_pressed.connect(_on_evade_pressed)
+	combat_input.evade_hold_changed.connect(_on_evade_hold_changed)
 	combat_input.guard_changed.connect(_on_guard_changed)
 	attack_state.state_changed.connect(_on_attack_state_changed)
 	stamina.stamina_changed.connect(_on_stamina_changed)
@@ -92,12 +96,16 @@ func _ready() -> void:
 	offense_resolver.attack_hit.connect(_on_player_attack_hit)
 	knockdown_manager.hud_text_changed.connect(_on_match_hud_text_changed)
 	knockdown_manager.match_finished.connect(_on_match_finished)
+	knockdown_manager.match_state_changed.connect(_on_match_state_for_evade)
 	round_manager.hud_text_changed.connect(_on_round_hud_text_changed)
 	round_manager.decision_required.connect(_on_decision_required)
 	match_decision.hud_text_changed.connect(_on_score_hud_text_changed)
 	match_decision.match_result_ready.connect(_on_match_result_ready)
 	if player_hit_stun != null and player_hit_stun.has_signal("hit_stun_started"):
 		player_hit_stun.hit_stun_started.connect(_on_player_hit_stun_started)
+	if finisher_impact_freeze != null:
+		finisher_impact_freeze.finisher_started.connect(_on_finisher_started)
+		finisher_impact_freeze.finisher_finished.connect(_on_finisher_finished)
 
 	_on_guard_changed(combat_input.is_guarding)
 	_on_attack_state_changed(attack_state.current_state, attack_state.current_attack)
@@ -126,10 +134,13 @@ func _process(_delta: float) -> void:
 	if player_hit_stun != null and player_hit_stun.is_hit_stunned():
 		_clear_action_buffer()
 		return
+	_try_apply_held_evade_movement()
 	_try_resolve_buffered_actions()
 
 
 func _can_accept_combat_input() -> bool:
+	if finisher_impact_freeze != null and finisher_impact_freeze.is_blocking_combat():
+		return false
 	return (
 		knockdown_manager.can_accept_combat_input()
 		and round_manager.can_accept_combat_input()
@@ -143,6 +154,7 @@ func _clear_action_buffer() -> void:
 
 func _on_player_hit_stun_started(_duration: float) -> void:
 	_clear_action_buffer()
+	_clear_evade_all()
 
 
 func _on_attack_requested(attack: int) -> void:
@@ -156,7 +168,6 @@ func _on_attack_requested(attack: int) -> void:
 		_clear_action_buffer()
 		return
 
-	## Space already up but GUARD state lagging — drop hold with no recovery wait.
 	_sync_guard_release_if_needed()
 
 	if _try_execute_player_attack(attack):
@@ -173,36 +184,107 @@ func _on_attack_requested(attack: int) -> void:
 	]
 
 
-func _on_defense_requested(defense: int) -> void:
+## Continuous movement target (always allowed when fighting; no stamina).
+func _on_evade_hold_changed(direction: int) -> void:
+	if player_evade == null:
+		return
+	if not _can_accept_combat_input() or (
+		player_hit_stun != null and player_hit_stun.is_hit_stunned()
+	):
+		player_evade.center_movement()
+		return
+	if not _can_apply_evade_movement():
+		return
+	player_evade.set_movement_direction(direction)
+
+
+## Explicit A/S/D press: try gameplay evade window (+ optional attack recovery cancel).
+func _on_evade_pressed(direction: int) -> void:
 	if not _can_accept_combat_input():
 		last_input_value.text = "Blocked: match not fighting"
-		_clear_action_buffer()
 		return
-
 	if player_hit_stun != null and player_hit_stun.is_hit_stunned():
 		last_input_value.text = "Blocked: hit stun"
-		_clear_action_buffer()
 		return
 
 	_sync_guard_release_if_needed()
 
-	if player_state.try_start_evasion(defense):
+	## Movement updates from hold_changed; ensure target matches this press.
+	if _can_apply_evade_movement():
+		player_evade.set_movement_direction(direction)
+
+	if _try_begin_evade_window(direction):
+		return
+
+	## Buffer evade only during attack recovery (cancel window).
+	if attack_state.is_recovering() and _can_buffer_combat_action():
+		action_buffer.buffer_evade(direction)
+		last_input_value.text = "Buffered: %s" % EVADE_NAMES[direction]
+		return
+
+	last_input_value.text = "Move %s (no evade window)" % EVADE_NAMES[direction]
+
+
+## Startup/Active: no movement. Recovery: only after attack_to_evade progress.
+func _can_apply_evade_movement() -> bool:
+	if attack_state.current_state in [
+		attack_state.AttackState.STARTUP,
+		attack_state.AttackState.ACTIVE,
+	]:
+		return false
+	if attack_state.is_recovering():
+		return attack_state.get_recovery_progress() >= action_buffer.attack_to_evade
+	return true
+
+
+func _try_apply_held_evade_movement() -> void:
+	if player_evade == null or combat_input == null:
+		return
+	if not _can_apply_evade_movement():
+		return
+	var held: int = combat_input.held_evade_direction
+	if held == combat_input.EvadeDirection.NONE:
+		return
+	if player_evade.movement_direction != held:
+		player_evade.set_movement_direction(held)
+
+
+func _try_begin_evade_window(direction: int) -> bool:
+	if direction == combat_input.EvadeDirection.NONE:
+		return false
+	## Startup / Active: never open gameplay evade.
+	if attack_state.current_state in [
+		attack_state.AttackState.STARTUP,
+		attack_state.AttackState.ACTIVE,
+	]:
+		return false
+	## Recovery: need attack_to_evade progress.
+	if attack_state.is_recovering():
+		if attack_state.get_recovery_progress() < action_buffer.attack_to_evade:
+			return false
+		attack_state.force_end_for_cancel()
+
+	## Leaving guard into evade — end guard first.
+	if player_state.is_guarding():
+		player_state.set_guard_held(false)
+
+	if player_evade.try_begin_window(direction):
 		_clear_action_buffer()
-		last_input_value.text = "Accepted: %s" % DEFENSE_NAMES[defense]
-		return
+		last_input_value.text = "Evade window: %s" % EVADE_NAMES[direction]
+		return true
+	return false
 
-	if _can_buffer_combat_action():
-		if defense == combat_input.DefenseType.SLIP_LEFT:
-			action_buffer.buffer_slip_left()
-		else:
-			action_buffer.buffer_slip_right()
-		last_input_value.text = "Buffered: %s" % DEFENSE_NAMES[defense]
-		return
 
-	last_input_value.text = "Blocked: %s (player: %s)" % [
-		DEFENSE_NAMES[defense],
-		PLAYER_STATE_NAMES[player_state.current_state],
-	]
+func _clear_evade_all() -> void:
+	if player_evade != null:
+		player_evade.clear_all()
+	if combat_input != null and combat_input.has_method("clear_held_evade"):
+		combat_input.clear_held_evade()
+
+
+func _on_match_state_for_evade(state: int) -> void:
+	if state != knockdown_manager.MatchState.FIGHTING:
+		_clear_evade_all()
 
 
 func _sync_guard_release_if_needed() -> void:
@@ -216,7 +298,6 @@ func _sync_guard_release_if_needed() -> void:
 
 func _on_guard_changed(is_guarding: bool) -> void:
 	if not is_guarding:
-		## Space released — never let a stale buffered guard fire later.
 		if action_buffer != null and action_buffer.has_method("clear_guard"):
 			action_buffer.clear_guard()
 
@@ -228,8 +309,13 @@ func _on_guard_changed(is_guarding: bool) -> void:
 		_update_guard_debug()
 		return
 
+	if is_guarding:
+		## Guard ends active evade window; movement can resume after release.
+		if player_evade != null:
+			player_evade.end_window()
+			player_evade.center_movement()
+
 	if is_guarding and not player_state.can_attack() and _can_buffer_combat_action():
-		## Busy — keep hold intent and buffer for early recovery/slip cancel.
 		player_state.set_guard_held(true)
 		action_buffer.buffer_guard()
 		_update_guard_debug()
@@ -239,6 +325,9 @@ func _on_guard_changed(is_guarding: bool) -> void:
 	player_state.set_guard_held(is_guarding)
 	if is_guarding:
 		_clear_action_buffer()
+	elif combat_input.held_evade_direction != combat_input.EvadeDirection.NONE:
+		## Guard released while A/S/D held — resume continuous movement.
+		_on_evade_hold_changed(combat_input.held_evade_direction)
 	_update_guard_debug()
 	last_input_value.text = "High guard input: %s" % (
 		"PRESSED" if is_guarding else "RELEASED"
@@ -246,11 +335,7 @@ func _on_guard_changed(is_guarding: bool) -> void:
 
 
 func _can_buffer_combat_action() -> bool:
-	if attack_state.current_state != attack_state.AttackState.IDLE:
-		return true
-	if player_state.is_evading():
-		return true
-	return false
+	return attack_state.current_state != attack_state.AttackState.IDLE
 
 
 func _try_execute_player_attack(attack: int) -> bool:
@@ -271,6 +356,10 @@ func _try_execute_player_attack(attack: int) -> bool:
 		return false
 
 	if attack_state.try_start_attack(attack):
+		## Attack commits: end evade window and return POV toward center.
+		if player_evade != null:
+			player_evade.end_window()
+			player_evade.center_movement()
 		stamina.spend_for_attack(attack_data.stamina_cost)
 		_clear_action_buffer()
 		last_input_value.text = "Accepted: %s" % ATTACK_NAMES[attack]
@@ -287,20 +376,18 @@ func _try_resolve_buffered_actions() -> void:
 				var attack: int = action_buffer.attack_index
 				_unlock_current_action_for_cancel()
 				if not _try_execute_player_attack(attack):
-					## Affordability failed or still blocked — drop buffer.
 					_clear_action_buffer()
-			action_buffer.Kind.SLIP_LEFT, action_buffer.Kind.SLIP_RIGHT:
-				if not _can_cancel_into_slip():
+			action_buffer.Kind.EVADE:
+				if not _can_cancel_into_evade():
 					return
-				var defense: int = combat_input.DefenseType.SLIP_LEFT
-				if action_buffer.kind == action_buffer.Kind.SLIP_RIGHT:
-					defense = combat_input.DefenseType.SLIP_RIGHT
+				var direction: int = action_buffer.evade_direction
 				_unlock_current_action_for_cancel()
-				if player_state.try_start_evasion(defense):
+				player_evade.set_movement_direction(direction)
+				if _try_begin_evade_window(direction):
 					_clear_action_buffer()
-					last_input_value.text = "Cancel -> %s" % DEFENSE_NAMES[defense]
 				else:
 					_clear_action_buffer()
+					last_input_value.text = "Move %s (no evade window)" % EVADE_NAMES[direction]
 			action_buffer.Kind.GUARD:
 				if not combat_input.is_guarding:
 					action_buffer.clear_guard()
@@ -316,7 +403,6 @@ func _try_resolve_buffered_actions() -> void:
 				pass
 		return
 
-	## No buffered attack/slip — Space still held can early-cancel into guard.
 	if combat_input.is_guarding and _can_cancel_into_guard():
 		_unlock_current_action_for_cancel()
 		player_state.set_guard_held(true)
@@ -327,31 +413,23 @@ func _try_resolve_buffered_actions() -> void:
 func _unlock_current_action_for_cancel() -> void:
 	if attack_state.current_state != attack_state.AttackState.IDLE:
 		attack_state.force_end_for_cancel()
-	if player_state.has_method("unlock_for_next_action"):
-		player_state.unlock_for_next_action()
 
 
 func _can_cancel_into_attack() -> bool:
 	if attack_state.is_recovering():
 		return attack_state.get_recovery_progress() >= action_buffer.attack_to_attack
-	if player_state.is_evading():
-		return player_state.get_slip_progress() >= action_buffer.slip_to_attack
 	return false
 
 
-func _can_cancel_into_slip() -> bool:
+func _can_cancel_into_evade() -> bool:
 	if attack_state.is_recovering():
-		return attack_state.get_recovery_progress() >= action_buffer.attack_to_slip
-	if player_state.is_evading():
-		return player_state.get_slip_progress() >= action_buffer.slip_to_slip
+		return attack_state.get_recovery_progress() >= action_buffer.attack_to_evade
 	return false
 
 
 func _can_cancel_into_guard() -> bool:
 	if attack_state.is_recovering():
 		return attack_state.get_recovery_progress() >= action_buffer.attack_to_guard
-	if player_state.is_evading():
-		return player_state.get_slip_progress() >= action_buffer.slip_to_guard
 	return false
 
 
@@ -386,12 +464,54 @@ func _on_opponent_kd_changed(current_meter: float, max_meter: float) -> void:
 
 func _on_opponent_knockdown(attack: int) -> void:
 	last_input_value.text = "OPP DOWN! KD Meter full | %s" % ATTACK_NAMES[attack]
+	## Finisher Impact Freeze first; KnockdownManager/Count start after freeze ends.
+	if finisher_impact_freeze != null:
+		if finisher_impact_freeze.try_begin_finisher(knockdown_manager.DownedSide.OPPONENT):
+			return
+		## Duplicate emit while pending — do not begin_knockdown again.
+		return
 	knockdown_manager.begin_opponent_knockdown()
 
 
 func _on_player_knockdown(attack_type: int) -> void:
 	last_input_value.text = "PLAYER DOWN! KD Meter full | %s" % ATTACK_NAMES[attack_type]
+	if finisher_impact_freeze != null:
+		if finisher_impact_freeze.try_begin_finisher(knockdown_manager.DownedSide.PLAYER):
+			return
+		return
 	knockdown_manager.begin_player_knockdown()
+
+
+func _on_finisher_started(downed_side: int) -> void:
+	_clear_action_buffer()
+	if round_manager != null and round_manager.has_method("pause_for_finisher"):
+		round_manager.pause_for_finisher()
+	if defense_resolver != null:
+		defense_resolver.meter_updates_enabled = false
+	if offense_resolver != null:
+		offense_resolver.meter_updates_enabled = false
+	if opponent_ai != null and opponent_ai.has_method("clear_pending_combat_decisions"):
+		opponent_ai.clear_pending_combat_decisions()
+	last_input_value.text = (
+		"FINISHER FREEZE → Opponent"
+		if downed_side == knockdown_manager.DownedSide.OPPONENT
+		else "FINISHER FREEZE → Player"
+	)
+
+
+func _on_finisher_finished(downed_side: int) -> void:
+	## Visual freeze already cleared by FinisherImpactFreeze (Player attacker → stance).
+	## Ensure Player AttackState is Idle before Opponent Down / Count (cancel is no-op if already Idle).
+	if downed_side == knockdown_manager.DownedSide.OPPONENT:
+		if attack_state != null:
+			attack_state.cancel_attack()
+		if player_state != null:
+			player_state.force_reset_to_idle()
+		_clear_action_buffer()
+	if downed_side == knockdown_manager.DownedSide.PLAYER:
+		knockdown_manager.begin_player_knockdown()
+	elif downed_side == knockdown_manager.DownedSide.OPPONENT:
+		knockdown_manager.begin_opponent_knockdown()
 
 
 func _on_match_hud_text_changed(text: String) -> void:
@@ -407,6 +527,8 @@ func _on_score_hud_text_changed(text: String) -> void:
 
 
 func _on_match_finished(winner: int) -> void:
+	if finisher_impact_freeze != null and finisher_impact_freeze.has_method("cancel_and_restore"):
+		finisher_impact_freeze.cancel_and_restore()
 	var winner_name := "Player" if winner == knockdown_manager.Winner.PLAYER else "Opponent"
 	last_input_value.text = "FINAL KO | Winner: %s" % winner_name
 
@@ -416,6 +538,8 @@ func _on_decision_required() -> void:
 
 
 func _on_match_result_ready(result) -> void:
+	if finisher_impact_freeze != null and finisher_impact_freeze.has_method("cancel_and_restore"):
+		finisher_impact_freeze.cancel_and_restore()
 	var ResultType = preload("res://scripts/match_result_data.gd").ResultType
 	var Winner = preload("res://scripts/match_result_data.gd").Winner
 	match result.result_type:
@@ -491,6 +615,7 @@ func _on_player_attack_hit(
 
 func _apply_player_hit_reaction(was_knockdown: bool) -> void:
 	_clear_action_buffer()
+	_clear_evade_all()
 	if attack_state != null:
 		attack_state.cancel_attack()
 	if player_state != null:

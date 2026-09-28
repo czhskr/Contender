@@ -497,6 +497,10 @@ func _set_breathing_offset(value: Vector2) -> void:
 	_apply_composed_transform()
 
 
+func reset_evade_visual_immediate() -> void:
+	_reset_pov_immediate()
+
+
 func _reset_pov_immediate() -> void:
 	_evade_target = Vector2.ZERO
 	_evade_direction = CombatInputType.EvadeDirection.NONE

@@ -38,10 +38,10 @@
 [ext_resource type="Script" uid="uid://dirm3tnty7hxy" path="res://scripts/opponent_visual.gd" id="42_opponent_visual"]
 [ext_resource type="Script" uid="uid://dcq82waec1kv3" path="res://scripts/hit_resolve_coordinator.gd" id="43_hit_resolve"]
 [ext_resource type="Script" uid="uid://dpd4ncdeqqglc" path="res://scripts/knockdown_meter.gd" id="44_kd_meter"]
-[ext_resource type="Script" path="res://scripts/player_action_buffer.gd" id="45_action_buffer"]
-[ext_resource type="Script" path="res://scripts/finisher_impact_freeze.gd" id="46_finisher"]
-[ext_resource type="Script" path="res://scripts/finisher_impact_effect.gd" id="47_finisher_fx"]
-[ext_resource type="Script" path="res://scripts/player_evade.gd" id="48_player_evade"]
+[ext_resource type="Script" uid="uid://b8y72h1jcjnfp" path="res://scripts/player_action_buffer.gd" id="45_action_buffer"]
+[ext_resource type="Script" uid="uid://dnhfk683lb2tm" path="res://scripts/finisher_impact_freeze.gd" id="46_finisher"]
+[ext_resource type="Script" uid="uid://dvpmp425bahtt" path="res://scripts/finisher_impact_effect.gd" id="47_finisher_fx"]
+[ext_resource type="Script" uid="uid://bm11jv6csr826" path="res://scripts/player_evade.gd" id="48_player_evade"]
 
 [node name="CombatPrototype" type="Node" unique_id=824776855]
 script = ExtResource("1_prototype")
@@ -78,11 +78,11 @@ player_evade = NodePath("../../PlayerEvade")
 [node name="PlayerCombatInput" type="Node" parent="." unique_id=546747862]
 script = ExtResource("2_input")
 
-[node name="PlayerEvade" type="Node" parent="." node_paths=PackedStringArray("player_stamina")]
+[node name="PlayerEvade" type="Node" parent="." unique_id=1047444665 node_paths=PackedStringArray("player_stamina")]
 script = ExtResource("48_player_evade")
 player_stamina = NodePath("../PlayerStamina")
 
-[node name="PlayerActionBuffer" type="Node" parent="."]
+[node name="PlayerActionBuffer" type="Node" parent="." unique_id=1806645866]
 script = ExtResource("45_action_buffer")
 
 [node name="PlayerHitStun" type="Node" parent="." unique_id=2021746707]
@@ -165,12 +165,12 @@ round_manager = NodePath("../RoundManager")
 opponent_hit_stun = NodePath("../OpponentHitStun")
 finisher_impact_freeze = NodePath("../FinisherImpactFreeze")
 
-[node name="FinisherImpactFreeze" type="Node" parent="." node_paths=PackedStringArray("impact_effect", "combat_visual_root")]
+[node name="FinisherImpactFreeze" type="Node" parent="." unique_id=1517819693 node_paths=PackedStringArray("impact_effect", "combat_visual_root")]
 script = ExtResource("46_finisher")
 impact_effect = NodePath("FinisherImpactEffect")
 combat_visual_root = NodePath("../CombatVisualRoot")
 
-[node name="FinisherImpactEffect" type="CanvasLayer" parent="FinisherImpactFreeze"]
+[node name="FinisherImpactEffect" type="CanvasLayer" parent="FinisherImpactFreeze" unique_id=370834841]
 script = ExtResource("47_finisher_fx")
 
 [node name="KnockdownManager" type="Node" parent="." unique_id=1600627935 node_paths=PackedStringArray("player_attack_state", "player_action_state", "opponent_attack_state", "opponent_action_state", "player_stamina", "opponent_stamina", "player_knockdown_meter", "opponent_knockdown_meter", "defense_resolver", "offense_resolver", "player_hit_stun", "opponent_hit_stun")]

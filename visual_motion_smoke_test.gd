@@ -34,6 +34,7 @@ func _run() -> void:
 	_check_guard_no_recovery(failures)
 	_check_attack_to_guard_threshold(failures)
 	_check_opponent_recovery(failures)
+	await _check_background_overscan(failures)
 	_check_no_player_health(failures)
 	_check_scene(failures)
 
@@ -442,6 +443,61 @@ func _check_opponent_recovery(failures: Array[String]) -> void:
 		failures.append("Opp L Straight active changed")
 	if right != null and not is_equal_approx(right.startup_time, 0.9):
 		failures.append("Opp R Straight startup changed")
+
+
+func _check_background_overscan(failures: Array[String]) -> void:
+	var bg := BackgroundVisualType.new()
+	root.add_child(bg)
+	await process_frame
+	var crowd: Sprite2D = bg.get_node_or_null("CrowdLayer")
+	var ring: Sprite2D = bg.get_node_or_null("RingLayer")
+	if crowd == null or ring == null or crowd.texture == null or ring.texture == null:
+		failures.append("Background layers failed to load")
+		bg.queue_free()
+		return
+
+	var crowd_tex := Vector2(crowd.texture.get_width(), crowd.texture.get_height())
+	var ring_tex := Vector2(ring.texture.get_width(), ring.texture.get_height())
+	var crowd_center := bg.layer_visual_center(crowd)
+	var ring_center := bg.layer_visual_center(ring)
+	if not crowd_center.is_equal_approx(bg.cover_visual_center(crowd_tex)):
+		failures.append("Crowd overscan moved visual center")
+	if not ring_center.is_equal_approx(bg.cover_visual_center(ring_tex)):
+		failures.append("Ring overscan moved visual center")
+	if not is_equal_approx(crowd.scale.x, crowd.scale.y) or not is_equal_approx(ring.scale.x, ring.scale.y):
+		failures.append("Overscan broke uniform scale")
+
+	var root_v := CombatVisualRootType.new()
+	var crowd_offsets: Array[Vector2] = [
+		Vector2.ZERO,
+		Vector2(root_v.parallax_crowd_x, 0.0),
+		Vector2(-root_v.parallax_crowd_x, 0.0),
+		Vector2(0.0, -(root_v.parallax_crowd_down_y + root_v.weave_depth_crowd)),
+		Vector2(root_v.parallax_crowd_x, -(root_v.parallax_crowd_down_y + root_v.weave_depth_crowd)),
+		Vector2(-root_v.parallax_crowd_x, -root_v.weave_depth_crowd),
+	]
+	for offset in crowd_offsets:
+		if not bg.layer_covers_viewport(crowd, offset):
+			failures.append("Crowd edge exposed at %s" % str(offset))
+	var ring_offsets: Array[Vector2] = [
+		Vector2.ZERO,
+		Vector2(root_v.parallax_ring_x, 0.0),
+		Vector2(-root_v.parallax_ring_x, 0.0),
+		Vector2(0.0, -(root_v.parallax_ring_down_y + root_v.weave_depth_ring)),
+		Vector2(root_v.parallax_ring_x, -(root_v.parallax_ring_down_y + root_v.weave_depth_ring)),
+		Vector2(-root_v.parallax_ring_x, -root_v.weave_depth_ring),
+	]
+	for offset in ring_offsets:
+		if not bg.layer_covers_viewport(ring, offset):
+			failures.append("Ring edge exposed at %s" % str(offset))
+	root_v.free()
+
+	var player := PlayerVisualType.new()
+	if not is_equal_approx(player.player_display_scale, 0.75):
+		failures.append("Player scale must stay 0.75")
+	player.free()
+	bg.queue_free()
+	await process_frame
 
 
 func _check_no_player_health(failures: Array[String]) -> void:

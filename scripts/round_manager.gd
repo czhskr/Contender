@@ -44,6 +44,9 @@ const KnockdownManagerType = preload("res://scripts/knockdown_manager.gd")
 @export var offense_resolver: OffenseResolverType
 @export var player_hit_stun: Node
 @export var opponent_hit_stun: Node
+@export var player_evade: Node
+@export var combat_input: Node
+@export var combat_visual_root: Node2D
 
 @export_group("Round Settings")
 @export_range(1, 15, 1, "or_greater") var total_rounds := 3
@@ -287,6 +290,17 @@ func _freeze_combat() -> void:
 	if opponent_hit_stun != null:
 		opponent_hit_stun.clear_hit_stun()
 	_set_meter_updates_enabled(false)
+	_clear_continuous_evade()
+
+
+## Round End / Break / decision / match freeze. No stamina spend.
+func _clear_continuous_evade() -> void:
+	if combat_input != null and combat_input.has_method("clear_held_evade"):
+		combat_input.clear_held_evade()
+	if player_evade != null and player_evade.has_method("clear_all"):
+		player_evade.clear_all()
+	if combat_visual_root != null and combat_visual_root.has_method("clear_continuous_evade_presentation"):
+		combat_visual_root.clear_continuous_evade_presentation()
 
 
 func _resume_combat() -> void:

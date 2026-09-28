@@ -312,6 +312,24 @@ Screen shake / POV / parallax가 HUD·KD·Stamina 바를 흔들지 않게 하기
 - DOWN successful pass-by: **`(0, -40)`** (40px upward). LEFT/RIGHT pass-by X **±130**. Stack ≤ ~80.
 - Opponent는 `parallax_offset` additive.
 
+### Background Overscan (`BackgroundVisual`)
+
+- Parallax amplitude는 줄이지 않는다. Crowd/Ring만 viewport + motion bleed를 uniform scale로 덮는다.
+- Bleed (한쪽, CombatVisualRoot가 계산 후 safety **4px** 추가):
+  - Crowd H **20+4**, V **10 + weave 10 + 4**
+  - Ring H **45+4**, V **22 + weave 22 + 4**
+- Scale은 기존 cover의 **시각 중심** 기준. Bottom anchor를 추가 높이의 절반만큼 내려 framing center를 유지한다.
+- Player scale **0.75**와 Opponent contain scale은 overscan 대상이 아니다.
+
+### Combat Freeze와 Evade clear
+
+- `RoundManager._freeze_combat()` (Round End, 이후 Break, Decision, Match KO)에서:
+  - held input clear
+  - `PlayerEvade.clear_all()` (window + movement, stamina 추가 소모 없음)
+  - `CombatVisualRoot.clear_continuous_evade_presentation()` — parallax/head-motion snap CENTER, pass-by clear, Player POV snap CENTER
+- HIT / Knockdown의 기존 clear는 유지한다.
+- 다음 Fighting은 CENTER에서 시작한다.
+
 ### Hit Shake (`CombatVisualRoot`만)
 
 - Opponent HIT(플레이어가 때림): strength **3** / **0.10s**.

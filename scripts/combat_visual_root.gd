@@ -42,6 +42,8 @@ const PlayerEvadeType = preload("res://scripts/player_evade.gd")
 @export_range(0.0, 120.0, 1.0, "or_greater") var weave_depth_opponent := 45.0
 @export_range(0.0, 120.0, 1.0, "or_greater") var weave_depth_ring := 22.0
 @export_range(0.0, 120.0, 1.0, "or_greater") var weave_depth_crowd := 10.0
+## Extra pixels beyond max parallax/weave so background edges stay off-screen.
+@export_range(0.0, 64.0, 1.0, "or_greater") var background_overscan_safety := 4.0
 
 @export_group("Hit Shake")
 @export_range(0.0, 64.0, 0.5, "or_greater") var opponent_hit_shake_strength := 3.0
@@ -92,6 +94,7 @@ var _freeze_shake_cleared := true
 func _ready() -> void:
 	base_position = position
 	_resolve_wired_nodes()
+	_apply_background_overscan()
 	_apply_composed_position()
 	set_process(true)
 
@@ -275,6 +278,30 @@ func _apply_parallax_offsets() -> void:
 			background_visual.set_ring_parallax(_ring_parallax)
 	if opponent_visual != null and opponent_visual.has_method("set_parallax_offset"):
 		opponent_visual.set_parallax_offset(_opponent_parallax)
+
+
+func clear_continuous_evade_presentation() -> void:
+	## Snap; do not leave a SmoothDamp tail into the next round.
+	_clear_passby_only()
+	_reset_world_parallax_immediate()
+	if player_visual != null and player_visual.has_method("reset_evade_visual_immediate"):
+		player_visual.reset_evade_visual_immediate()
+
+
+func _apply_background_overscan() -> void:
+	if background_visual == null or not background_visual.has_method("set_motion_bleed"):
+		return
+	var safety := maxf(background_overscan_safety, 0.0)
+	background_visual.set_motion_bleed(
+		Vector2(
+			parallax_crowd_x + safety,
+			parallax_crowd_down_y + weave_depth_crowd + safety
+		),
+		Vector2(
+			parallax_ring_x + safety,
+			parallax_ring_down_y + weave_depth_ring + safety
+		)
+	)
 
 
 func _reset_world_parallax_immediate() -> void:

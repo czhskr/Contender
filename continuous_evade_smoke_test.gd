@@ -37,6 +37,7 @@ func _run() -> void:
 	_check_passby_down(failures)
 	_check_opponent_down_idle(failures)
 	_check_no_legacy_slip_api(failures)
+	await _check_round_freeze_clears_evade(failures)
 	_check_scene_wiring(failures)
 
 	if failures.is_empty():
@@ -408,6 +409,87 @@ func _check_no_legacy_slip_api(failures: Array[String]) -> void:
 	player.free()
 
 
+func _check_round_freeze_clears_evade(failures: Array[String]) -> void:
+	const RoundManagerType = preload("res://scripts/round_manager.gd")
+	for direction in [
+		PlayerEvadeType.Direction.LEFT,
+		PlayerEvadeType.Direction.RIGHT,
+		PlayerEvadeType.Direction.DOWN,
+	]:
+		var stamina := StaminaType.new()
+		stamina.initial_current_stamina = 80.0
+		stamina.initial_max_stamina = 100.0
+		stamina._ready()
+		var evade := PlayerEvadeType.new()
+		evade.player_stamina = stamina
+		var player := PlayerVisualType.new()
+		var opponent := OpponentVisualType.new()
+		var visual := CombatVisualRootType.new()
+		var rounds := RoundManagerType.new()
+		root.add_child(visual)
+		visual.add_child(player)
+		visual.add_child(opponent)
+		root.add_child(evade)
+		root.add_child(rounds)
+		await process_frame
+
+		evade.set_movement_direction(direction)
+		if not evade.try_begin_window(direction):
+			failures.append("Window should open before freeze (dir %d)" % direction)
+		var stamina_after_window := stamina.current_stamina
+		var regen_block := stamina._time_since_regen_block
+		player._evade_target = evade.movement_target
+		player.pov_offset = Vector2(0.0, 8.0)
+		visual.player_visual = player
+		visual.opponent_visual = opponent
+		visual.player_evade = evade
+		visual._head_lateral = 1.0
+		visual._head_down = 1.0
+		visual._weave_blend = 1.0
+		visual._crowd_parallax = Vector2(20, -10)
+		visual._ring_parallax = Vector2(-45, -22)
+		visual._opponent_parallax = Vector2(90, -40)
+		opponent.apply_evade_passby_offset(Vector2(0.0, -40.0))
+
+		rounds.player_evade = evade
+		rounds.combat_visual_root = visual
+		rounds.player_stamina = stamina
+		rounds.round_state = rounds.RoundState.FIGHTING
+		rounds._freeze_combat()
+
+		if evade.window_active or evade.movement_direction != PlayerEvadeType.Direction.NONE:
+			failures.append("Freeze must clear evade gameplay (dir %d)" % direction)
+		if player.pov_offset != Vector2.ZERO or player._evade_target != Vector2.ZERO:
+			failures.append("Freeze must center Player POV (dir %d)" % direction)
+		if visual._crowd_parallax != Vector2.ZERO or visual._ring_parallax != Vector2.ZERO:
+			failures.append("Freeze must center world parallax (dir %d)" % direction)
+		if visual._head_lateral != 0.0 or visual._head_down != 0.0 or visual._weave_blend != 0.0:
+			failures.append("Freeze must zero head-motion state (dir %d)" % direction)
+		if opponent._evade_passby_offset != Vector2.ZERO:
+			failures.append("Freeze must clear pass-by (dir %d)" % direction)
+		if not is_equal_approx(stamina.current_stamina, stamina_after_window):
+			failures.append("Freeze must not spend stamina")
+		if not is_equal_approx(stamina._time_since_regen_block, regen_block):
+			failures.append("Freeze must not reset regen delay")
+
+		rounds.round_state = rounds.RoundState.BREAK
+		if evade.movement_direction != PlayerEvadeType.Direction.NONE:
+			failures.append("Break still has an evade direction")
+		rounds.round_state = rounds.RoundState.FIGHTING
+		if (
+			evade.movement_direction != PlayerEvadeType.Direction.NONE
+			or visual._head_lateral_target != 0.0
+			or player.pov_offset != Vector2.ZERO
+		):
+			failures.append("Next round must start at CENTER")
+
+		rounds.queue_free()
+		evade.queue_free()
+		visual.queue_free()
+		stamina.queue_free()
+		await process_frame
+
+
 func _check_scene_wiring(failures: Array[String]) -> void:
 	var packed: PackedScene = load("res://scenes/game.tscn")
 	if packed == null:
@@ -425,4 +507,9 @@ func _check_scene_wiring(failures: Array[String]) -> void:
 	var player_v = scene.get_node_or_null("CombatVisualRoot/PlayerVisual")
 	if player_v != null and player_v.player_evade == null:
 		failures.append("PlayerVisual.player_evade not wired")
+	var rounds = scene.get_node_or_null("RoundManager")
+	if rounds != null and rounds.player_evade == null:
+		failures.append("RoundManager.player_evade not wired")
+	if rounds != null and rounds.combat_visual_root == null:
+		failures.append("RoundManager.combat_visual_root not wired")
 	scene.free()

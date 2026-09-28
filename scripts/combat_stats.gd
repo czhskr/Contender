@@ -160,6 +160,8 @@ func _on_player_attack_hit(
 	if knockdown_damage > 0.0:
 		current_player.attacks_landed += 1
 		current_player.knockdown_damage_dealt += knockdown_damage
+		if _phase_is_open(opponent_attack_state):
+			current_player.counter_hits_landed += 1
 	stats_changed.emit()
 
 
@@ -177,6 +179,8 @@ func _on_opponent_attack_resolved(
 			if knockdown_damage > 0.0:
 				current_opponent.attacks_landed += 1
 				current_opponent.knockdown_damage_dealt += knockdown_damage
+				if _phase_is_open(player_attack_state):
+					current_opponent.counter_hits_landed += 1
 		DefenseResolverType.DefenseResult.BLOCK:
 			current_opponent.blocked_hits += 1
 			if knockdown_damage > 0.0:
@@ -187,13 +191,23 @@ func _on_opponent_attack_resolved(
 	stats_changed.emit()
 
 
+func _phase_is_open(attack_state: Node) -> bool:
+	if attack_state == null:
+		return false
+	var state := int(attack_state.current_state)
+	return state == 1 or state == 2
+
+
 func _on_knockdown_state_changed(state: int) -> void:
 	if not recording:
 		return
 
-	if state == KnockdownManagerType.MatchState.PLAYER_DOWN:
+	if state == KnockdownManagerType.MatchState.PLAYER_DOWN or state == KnockdownManagerType.MatchState.DOUBLE_DOWN:
 		current_opponent.knockdowns += 1
 		stats_changed.emit()
 	elif state == KnockdownManagerType.MatchState.OPPONENT_DOWN:
+		current_player.knockdowns += 1
+		stats_changed.emit()
+	if state == KnockdownManagerType.MatchState.DOUBLE_DOWN:
 		current_player.knockdowns += 1
 		stats_changed.emit()

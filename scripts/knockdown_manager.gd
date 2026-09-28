@@ -13,6 +13,8 @@ signal recovery_decided(
 )
 signal recovered(downed_side: DownedSide, at_count: int)
 signal match_finished(winner: Winner)
+signal round_voided
+signal fighter_stood(downed_side: DownedSide, at_count: int)
 signal hud_text_changed(text: String)
 
 
@@ -21,12 +23,15 @@ enum MatchState {
 	PLAYER_DOWN,
 	OPPONENT_DOWN,
 	FINAL_KO,
+	TRADE_RESOLUTION,
+	DOUBLE_DOWN,
 }
 
 enum DownedSide {
 	NONE,
 	PLAYER,
 	OPPONENT,
+	BOTH,
 }
 
 enum Winner {
@@ -65,8 +70,8 @@ const OffenseResolverType = preload("res://scripts/player_offense_resolver.gd")
 @export_range(0.05, 5.0, 0.05, "or_greater") var count_interval := 1.0
 
 @export_group("Knockdown Meter")
-## Fixed KD Meter value after a successful recovery.
-@export_range(0.0, 100.0, 1.0) var recovery_knockdown_meter := 50.0
+## Successful stand-up restores this fraction of the meter's maximum.
+@export_range(0.0, 1.0, 0.05) var recovery_meter_ratio := 0.5
 
 @export_group("Debug")
 @export var enable_debug_force_knockdown := true
@@ -86,6 +91,21 @@ var stand_up_count := -1
 var _count_time_remaining := 0.0
 ## When false, RoundManager (break / round end / finished) owns combat freeze.
 var _combat_control_enabled := true
+var _candidate_live := false
+var _candidate_is_player := false
+var _candidate_token := -1
+var _pending_kind := 0
+var _pending_side := DownedSide.NONE
+var _waiting_for_finisher := false
+var _player_will_recover := false
+var _opponent_will_recover := false
+var _player_stand_count := -1
+var _opponent_stand_count := -1
+var _player_stood := false
+var _opponent_stood := false
+var _scripted_player_recovery: Dictionary = {}
+var _scripted_opponent_recovery: Dictionary = {}
+var _finisher: Node = null
 
 
 func _ready() -> void:
@@ -93,12 +113,16 @@ func _ready() -> void:
 		player_recovery_settings = RecoverySettingsType.new()
 	if opponent_recovery_settings == null:
 		opponent_recovery_settings = RecoverySettingsType.new()
+	_finisher = get_node_or_null("../FinisherImpactFreeze")
+	if _finisher != null and _finisher.has_signal("finisher_finished"):
+		if not _finisher.finisher_finished.is_connected(_on_finisher_finished):
+			_finisher.finisher_finished.connect(_on_finisher_finished)
 	set_process(false)
 	hud_text_changed.emit("FIGHTING")
 
 
 func _process(delta: float) -> void:
-	if match_state not in [MatchState.PLAYER_DOWN, MatchState.OPPONENT_DOWN]:
+	if match_state not in [MatchState.PLAYER_DOWN, MatchState.OPPONENT_DOWN, MatchState.DOUBLE_DOWN]:
 		return
 
 	_count_time_remaining -= delta
@@ -127,6 +151,52 @@ func can_accept_combat_input() -> bool:
 	return match_state == MatchState.FIGHTING
 
 
+func new_actions_locked() -> bool:
+	return match_state != MatchState.FIGHTING
+
+
+func allows_attack_resolution(is_player_attack: bool, token: int) -> bool:
+	if match_state == MatchState.FIGHTING:
+		return true
+	if match_state == MatchState.TRADE_RESOLUTION and _candidate_live:
+		return is_player_attack == _candidate_is_player and token == _candidate_token
+	return false
+
+
+func queue_recovery_result(side: DownedSide, success: bool, stand_up_count: int) -> void:
+	var payload := {
+		"success": success,
+		"stand_up_count": stand_up_count if success else -1,
+		"chance": 1.0,
+		"roll": 0.0,
+		"stamina": 0.0,
+	}
+	if side == DownedSide.PLAYER:
+		_scripted_player_recovery = payload
+	elif side == DownedSide.OPPONENT:
+		_scripted_opponent_recovery = payload
+
+
+func notify_threshold(side: DownedSide) -> void:
+	if not _combat_control_enabled:
+		return
+	if side == DownedSide.NONE or side == DownedSide.BOTH:
+		return
+	if match_state == MatchState.TRADE_RESOLUTION:
+		return
+	if match_state != MatchState.FIGHTING:
+		return
+	_open_trade(side)
+
+
+func notify_attack_resolved(is_player_attack: bool, token: int) -> void:
+	if match_state != MatchState.TRADE_RESOLUTION or not _candidate_live:
+		return
+	if is_player_attack != _candidate_is_player or token != _candidate_token:
+		return
+	_commit_trade(true)
+
+
 func set_combat_control_enabled(enabled: bool) -> void:
 	_combat_control_enabled = enabled
 
@@ -147,8 +217,121 @@ func force_knockdown(side: DownedSide) -> void:
 	_begin_knockdown(side)
 
 
+func _open_trade(first_side: DownedSide) -> void:
+	match_state = MatchState.TRADE_RESOLUTION
+	_candidate_live = false
+	_candidate_token = -1
+	var candidate_is_player := first_side == DownedSide.PLAYER
+	var attack_state: Node = player_attack_state if candidate_is_player else opponent_attack_state
+	var resolver: Node = offense_resolver if candidate_is_player else defense_resolver
+	var active := false
+	var token := -1
+	if attack_state != null:
+		token = int(attack_state.get_action_token())
+		active = int(attack_state.get("current_state")) == AttackStateType.AttackState.ACTIVE
+	var unresolved := true
+	if resolver != null and resolver.has_method("has_resolved_token"):
+		unresolved = not resolver.has_resolved_token(token)
+	var label := "Player" if first_side == DownedSide.PLAYER else "Opponent"
+	if active and unresolved and token >= 0:
+		_candidate_live = true
+		_candidate_is_player = candidate_is_player
+		_candidate_token = token
+		var owner := "Player" if candidate_is_player else "Opponent"
+		if print_events:
+			print("[TRADE]")
+			print("first_threshold=%s" % label)
+			print("candidate=%sAttackToken#%d" % [owner, token])
+			print("phase=ACTIVE")
+		_cancel_non_candidate_attacks()
+		return
+	if print_events:
+		print("[TRADE]")
+		print("first_threshold=%s" % label)
+		print("candidate=NONE")
+	_cancel_non_candidate_attacks()
+	_commit_trade(false)
+
+
+func _cancel_non_candidate_attacks() -> void:
+	if player_attack_state != null:
+		if not (_candidate_live and _candidate_is_player):
+			if player_attack_state.current_state != AttackStateType.AttackState.IDLE:
+				player_attack_state.cancel_attack()
+	if opponent_attack_state != null:
+		if not (_candidate_live and not _candidate_is_player):
+			if int(opponent_attack_state.current_state) != AttackStateType.AttackState.IDLE:
+				opponent_attack_state.cancel_attack()
+
+
+func _commit_trade(from_candidate: bool) -> void:
+	if match_state != MatchState.TRADE_RESOLUTION:
+		return
+	_candidate_live = false
+	var player_full := player_knockdown_meter != null and player_knockdown_meter.is_full()
+	var opponent_full := opponent_knockdown_meter != null and opponent_knockdown_meter.is_full()
+	var player_now := 0.0 if player_knockdown_meter == null else player_knockdown_meter.current_meter
+	var opponent_now := 0.0 if opponent_knockdown_meter == null else opponent_knockdown_meter.current_meter
+	if player_full and opponent_full:
+		_pending_kind = 2
+		_pending_side = DownedSide.BOTH
+		if print_events:
+			if from_candidate:
+				print("[TRADE]")
+				print("candidate_resolved")
+				print("player_kd=%.0f" % player_now)
+				print("opponent_kd=%.0f" % opponent_now)
+			print("result=DOUBLE_KNOCKDOWN")
+	elif player_full:
+		_pending_kind = 1
+		_pending_side = DownedSide.PLAYER
+		if print_events:
+			print("result=SINGLE_KNOCKDOWN")
+	elif opponent_full:
+		_pending_kind = 1
+		_pending_side = DownedSide.OPPONENT
+		if print_events:
+			print("result=SINGLE_KNOCKDOWN")
+	else:
+		match_state = MatchState.FIGHTING
+		return
+	_present_pending()
+
+
+func _present_pending() -> void:
+	_set_meter_updates_enabled(false)
+	var finisher := _finisher
+	if finisher != null and finisher.has_method("try_begin_finisher") and not _waiting_for_finisher:
+		var side := int(_pending_side if _pending_kind == 1 else DownedSide.PLAYER)
+		if bool(finisher.get("is_pending")):
+			_waiting_for_finisher = true
+			return
+		if finisher.try_begin_finisher(side):
+			_waiting_for_finisher = true
+			return
+	_apply_pending_knockdown()
+
+
+func _on_finisher_finished(_side: int) -> void:
+	if not _waiting_for_finisher:
+		return
+	_waiting_for_finisher = false
+	_apply_pending_knockdown()
+
+
+func _apply_pending_knockdown() -> void:
+	var kind := _pending_kind
+	var side := _pending_side
+	_pending_kind = 0
+	_pending_side = DownedSide.NONE
+	if kind == 2:
+		_begin_double_knockdown()
+	elif kind == 1:
+		_begin_knockdown(side)
+
+
 func _begin_knockdown(side: DownedSide) -> void:
-	if match_state != MatchState.FIGHTING:
+	if match_state not in [MatchState.FIGHTING, MatchState.TRADE_RESOLUTION]:
 		return
 	if not _combat_control_enabled:
 		return
@@ -175,10 +358,60 @@ func _begin_knockdown(side: DownedSide) -> void:
 	set_process(true)
 
 
+func _begin_double_knockdown() -> void:
+	if match_state not in [MatchState.FIGHTING, MatchState.TRADE_RESOLUTION]:
+		return
+	if not _combat_control_enabled:
+		return
+	downed_side = DownedSide.BOTH
+	current_count = 0
+	will_recover = false
+	stand_up_count = -1
+	_player_stood = false
+	_opponent_stood = false
+	player_knockdown_count += 1
+	opponent_knockdown_count += 1
+	var player_result := _take_recovery(DownedSide.PLAYER, player_stamina.current_stamina)
+	var opponent_result := _take_recovery(DownedSide.OPPONENT, opponent_stamina.current_stamina)
+	_player_will_recover = bool(player_result["success"])
+	_opponent_will_recover = bool(opponent_result["success"])
+	_player_stand_count = int(player_result["stand_up_count"])
+	_opponent_stand_count = int(opponent_result["stand_up_count"])
+	match_state = MatchState.DOUBLE_DOWN
+	_freeze_combat()
+	if print_events:
+		print("[DOUBLE_KD]")
+		print("Player recovery=%s stand_count=%d" % [
+			"SUCCESS" if _player_will_recover else "FAIL",
+			_player_stand_count,
+		])
+		print("Opponent recovery=%s stand_count=%d" % [
+			"SUCCESS" if _opponent_will_recover else "FAIL",
+			_opponent_stand_count,
+		])
+	match_state_changed.emit(match_state)
+	hud_text_changed.emit("DOUBLE DOWN")
+	_count_time_remaining = count_interval
+	set_process(true)
+
+
+func _take_recovery(side: DownedSide, stamina_now: float) -> Dictionary:
+	var scripted: Dictionary = _scripted_player_recovery if side == DownedSide.PLAYER else _scripted_opponent_recovery
+	if not scripted.is_empty():
+		var copy := scripted.duplicate()
+		copy["stamina"] = stamina_now
+		if side == DownedSide.PLAYER:
+			_scripted_player_recovery = {}
+		else:
+			_scripted_opponent_recovery = {}
+		return copy
+	var settings := player_recovery_settings if side == DownedSide.PLAYER else opponent_recovery_settings
+	return settings.resolve_recovery(stamina_now)
+
+
 func _decide_recovery() -> void:
-	var settings := _active_recovery_settings()
 	var stamina := _downed_stamina()
-	var result: Dictionary = settings.resolve_recovery(stamina.current_stamina)
+	var result := _take_recovery(downed_side, stamina.current_stamina)
 	will_recover = bool(result["success"])
 	stand_up_count = int(result["stand_up_count"])
 
@@ -221,6 +454,10 @@ func _advance_count() -> void:
 	if print_events:
 		print("Count: %d" % current_count)
 
+	if match_state == MatchState.DOUBLE_DOWN:
+		_advance_double_count()
+		return
+
 	if will_recover and current_count >= stand_up_count:
 		_recover(current_count)
 		return
@@ -236,16 +473,94 @@ func _recover(at_count: int) -> void:
 	var settings := _active_recovery_settings()
 	var stamina := _downed_stamina()
 	stamina.restore_stamina(settings.recovery_stamina_amount)
-	_set_downed_meter(recovery_knockdown_meter)
+	var restored_meter := _recovery_meter_value()
+	_set_downed_meter(restored_meter)
 
 	var recovered_side := downed_side
 	if print_events:
 		var label := "Player" if recovered_side == DownedSide.PLAYER else "Opponent"
-		print("%s recovered at %d | KD Meter -> %.0f" % [label, at_count, recovery_knockdown_meter])
+		print("%s recovered at %d | KD Meter -> %.0f" % [label, at_count, restored_meter])
 
-	recovered.emit(recovered_side, at_count)
 	_resume_fighting()
+	recovered.emit(recovered_side, at_count)
 	hud_text_changed.emit("FIGHTING")
+
+
+func _advance_double_count() -> void:
+	if _player_will_recover and not _player_stood and current_count >= _player_stand_count:
+		_stand_one(DownedSide.PLAYER, current_count)
+	if _opponent_will_recover and not _opponent_stood and current_count >= _opponent_stand_count:
+		_stand_one(DownedSide.OPPONENT, current_count)
+	if _player_stood and _opponent_stood:
+		if print_events:
+			print("Both recovered")
+			print("FIGHTING RESUME")
+		_resume_fighting()
+		hud_text_changed.emit("FIGHTING")
+		recovered.emit(DownedSide.BOTH, current_count)
+		return
+	if current_count >= 10:
+		_finish_double_at_ten()
+		return
+	_count_time_remaining = count_interval
+
+
+func _stand_one(side: DownedSide, at_count: int) -> void:
+	var settings := player_recovery_settings if side == DownedSide.PLAYER else opponent_recovery_settings
+	var stamina: Node = player_stamina if side == DownedSide.PLAYER else opponent_stamina
+	var meter := player_knockdown_meter if side == DownedSide.PLAYER else opponent_knockdown_meter
+	stamina.restore_stamina(settings.recovery_stamina_amount)
+	if meter != null:
+		meter.set_meter(meter.max_meter * recovery_meter_ratio)
+	if side == DownedSide.PLAYER:
+		_player_stood = true
+	else:
+		_opponent_stood = true
+	var label := "Player" if side == DownedSide.PLAYER else "Opponent"
+	var waiting := not (_player_stood and _opponent_stood)
+	if print_events:
+		if waiting:
+			print("%s recovered - WAITING" % label)
+		else:
+			print("%s recovered" % label)
+	fighter_stood.emit(side, at_count)
+
+
+func _finish_double_at_ten() -> void:
+	set_process(false)
+	if _player_stood and not _opponent_stood:
+		downed_side = DownedSide.OPPONENT
+		winner = Winner.PLAYER
+		match_state = MatchState.FINAL_KO
+		_freeze_combat()
+		if print_events:
+			print("Opponent KO")
+			print("Winner: Player")
+		hud_text_changed.emit("KO\nWinner: Player")
+		match_state_changed.emit(match_state)
+		match_finished.emit(winner)
+		return
+	if _opponent_stood and not _player_stood:
+		downed_side = DownedSide.PLAYER
+		winner = Winner.OPPONENT
+		match_state = MatchState.FINAL_KO
+		_freeze_combat()
+		if print_events:
+			print("Player KO")
+			print("Winner: Opponent")
+		hud_text_changed.emit("KO\nWinner: Opponent")
+		match_state_changed.emit(match_state)
+		match_finished.emit(winner)
+		return
+	downed_side = DownedSide.BOTH
+	winner = Winner.NONE
+	match_state = MatchState.FINAL_KO
+	_freeze_combat()
+	if print_events:
+		print("DOUBLE KO")
+	hud_text_changed.emit("DOUBLE KO")
+	match_state_changed.emit(match_state)
+	round_voided.emit()
 
 
 func _finish_final_ko() -> void:
@@ -271,12 +586,46 @@ func _finish_final_ko() -> void:
 	match_finished.emit(winner)
 
 
+func reset_for_next_round() -> void:
+	set_process(false)
+	current_count = 0
+	downed_side = DownedSide.NONE
+	will_recover = false
+	stand_up_count = -1
+	winner = Winner.NONE
+	_candidate_live = false
+	_candidate_token = -1
+	_pending_kind = 0
+	_pending_side = DownedSide.NONE
+	_waiting_for_finisher = false
+	_player_stood = false
+	_opponent_stood = false
+	_player_will_recover = false
+	_opponent_will_recover = false
+	match_state = MatchState.FIGHTING
+	_combat_control_enabled = true
+	if player_stamina != null:
+		player_stamina.set_regeneration_enabled(true)
+	if opponent_stamina != null:
+		opponent_stamina.set_regeneration_enabled(true)
+	_set_meter_updates_enabled(true)
+	if opponent_attack_state != null:
+		opponent_attack_state.set_combat_enabled(true)
+	hud_text_changed.emit("FIGHTING")
+	match_state_changed.emit(match_state)
+
+
 func _resume_fighting() -> void:
 	set_process(false)
 	current_count = 0
 	downed_side = DownedSide.NONE
 	will_recover = false
 	stand_up_count = -1
+	_candidate_live = false
+	_pending_kind = 0
+	_waiting_for_finisher = false
+	_player_stood = false
+	_opponent_stood = false
 	match_state = MatchState.FIGHTING
 	if _combat_control_enabled:
 		player_stamina.set_regeneration_enabled(true)
@@ -292,6 +641,9 @@ func _freeze_combat() -> void:
 	if opponent_action_state != null:
 		opponent_action_state.force_reset_to_idle()
 	opponent_attack_state.cancel_and_disable()
+	var ai = get_node_or_null("../OpponentAI")
+	if ai != null and ai.has_method("clear_pending_combat_decisions"):
+		ai.clear_pending_combat_decisions()
 	player_stamina.set_regeneration_enabled(false)
 	opponent_stamina.set_regeneration_enabled(false)
 	_set_meter_updates_enabled(false)
@@ -306,6 +658,17 @@ func _set_meter_updates_enabled(enabled: bool) -> void:
 		defense_resolver.meter_updates_enabled = enabled
 	if offense_resolver != null:
 		offense_resolver.meter_updates_enabled = enabled
+
+
+func _recovery_meter_value() -> float:
+	var meter := (
+		player_knockdown_meter
+		if downed_side == DownedSide.PLAYER
+		else opponent_knockdown_meter
+	)
+	if meter == null:
+		return preload("res://scripts/knockdown_meter.gd").new().max_meter * recovery_meter_ratio
+	return meter.max_meter * recovery_meter_ratio
 
 
 func _set_downed_meter(value: float) -> void:

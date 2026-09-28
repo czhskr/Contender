@@ -38,15 +38,17 @@ func _check_meter(failures: Array[String]) -> void:
 	root.add_child(meter)
 	if not is_equal_approx(meter.current_meter, 0.0):
 		failures.append("Meter should start at 0")
-	meter.apply_knockdown_damage(92.0)
-	if not is_equal_approx(meter.current_meter, 92.0):
+	if not is_equal_approx(meter.max_meter, 300.0):
+		failures.append("Meter max should be 300")
+	meter.apply_knockdown_damage(292.0)
+	if not is_equal_approx(meter.current_meter, 292.0):
 		failures.append("Meter apply failed")
 	meter.apply_knockdown_damage(8.0)
 	if not meter.is_full():
-		failures.append("Meter should be full at 100")
+		failures.append("Meter should be full at 300")
 	meter.apply_knockdown_damage(50.0)
-	if not is_equal_approx(meter.current_meter, 100.0):
-		failures.append("Meter should clamp at 100")
+	if not is_equal_approx(meter.current_meter, 300.0):
+		failures.append("Meter should clamp at 300")
 	meter.set_meter(50.0)
 	if not is_equal_approx(meter.current_meter, 50.0):
 		failures.append("set_meter 50 failed")
@@ -122,11 +124,11 @@ func _check_hit_block_evade(failures: Array[String]) -> void:
 	if not is_equal_approx(evade_applied, 0.0) or not is_equal_approx(meter.current_meter, before_evade):
 		failures.append("EVADE should not change KD meter")
 
-	## 92 + 8 → full (no random KO)
-	meter.set_meter(92.0)
+	## 292 + 8 → full at the 300 maximum.
+	meter.set_meter(292.0)
 	var applied_to_full: float = meter.apply_knockdown_damage(8.0)
-	if not meter.is_full() or not is_equal_approx(meter.current_meter, 100.0):
-		failures.append("92 + 8 should fill meter to 100")
+	if not meter.is_full() or not is_equal_approx(meter.current_meter, 300.0):
+		failures.append("292 + 8 should fill meter to 300")
 	if not is_equal_approx(applied_to_full, 8.0):
 		failures.append("92 + 8 should apply exactly 8 KD")
 
@@ -204,12 +206,12 @@ func _check_scene(failures: Array[String]) -> void:
 	if defense != null and defense.player_knockdown_meter == null:
 		failures.append("DefenseResolver missing player KD meter")
 	var stun = scene.get_node_or_null("PlayerHitStun")
-	if stun != null and not is_equal_approx(stun.hit_stun_duration, 0.35):
-		failures.append("Hit Stun not 0.35")
+	if stun != null and stun.is_hit_stunned():
+		failures.append("Normal HIT must not gameplay-stun")
 	var kd_mgr = scene.get_node_or_null("KnockdownManager")
-	if kd_mgr != null and not is_equal_approx(kd_mgr.recovery_knockdown_meter, 50.0):
-		failures.append("recovery_knockdown_meter != 50")
+	if kd_mgr != null and not is_equal_approx(kd_mgr.recovery_meter_ratio, 0.5):
+		failures.append("recovery_meter_ratio != 0.5")
 	var round_mgr = scene.get_node_or_null("RoundManager")
-	if round_mgr != null and not is_equal_approx(round_mgr.round_knockdown_meter_recovery, 15.0):
-		failures.append("round_knockdown_meter_recovery != 15")
+	if round_mgr != null and not is_equal_approx(round_mgr.round_duration, 60.0):
+		failures.append("round duration != 60")
 	scene.free()

@@ -38,23 +38,15 @@ func _check_hit_stun_default(failures: Array[String]) -> void:
 
 
 func _check_difficulty_intervals(failures: Array[String]) -> void:
-	var expected := {
-		"res://data/difficulty/easy.tres": [0.35, 0.7, 0.25],
-		"res://data/difficulty/normal.tres": [0.1, 0.3, 0.6],
-		"res://data/difficulty/hard.tres": [0.03, 0.15, 0.8],
-	}
-	for path in expected.keys():
-		var settings = load(path)
-		if settings == null:
-			failures.append("Missing difficulty: %s" % path)
-			continue
-		var vals: Array = expected[path]
-		if not is_equal_approx(settings.attack_interval_min, vals[0]):
-			failures.append("%s interval_min != %.2f" % [path, vals[0]])
-		if not is_equal_approx(settings.attack_interval_max, vals[1]):
-			failures.append("%s interval_max != %.2f" % [path, vals[1]])
-		if not is_equal_approx(settings.follow_up_chance, vals[2]):
-			failures.append("%s follow_up_chance != %.2f" % [path, vals[2]])
+	var settings = preload("res://scripts/opponent_difficulty_settings.gd").new()
+	if not is_equal_approx(settings.attack_interval_min, 0.1):
+		failures.append("baseline interval_min")
+	if not is_equal_approx(settings.attack_interval_max, 0.3):
+		failures.append("baseline interval_max")
+	if not is_equal_approx(settings.follow_up_chance, 0.6):
+		failures.append("baseline follow_up")
+	if not is_equal_approx(settings.aggression, 0.62):
+		failures.append("baseline aggression")
 
 
 func _check_follow_up_fields(failures: Array[String]) -> void:

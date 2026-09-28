@@ -5,7 +5,7 @@ extends Node
 
 const AttackDataType = preload("res://scripts/opponent_attack_data.gd")
 const OpponentStaminaType = preload("res://scripts/opponent_stamina.gd")
-const ActionSpeedSettingsType = preload("res://scripts/action_speed_settings.gd")
+const HandReuseType = preload("res://scripts/hand_reuse.gd")
 
 signal state_changed(state: AttackState, attack_data: AttackDataType)
 signal attack_active(attack_data: AttackDataType)
@@ -28,12 +28,12 @@ const SIDE_NAMES := ["Left", "Right"]
 
 @export var attacks: Array[AttackDataType] = []
 @export var opponent_stamina: OpponentStaminaType
-@export var action_speed_settings: ActionSpeedSettingsType
 @export var hit_stun: Node
+@export var same_hand_reuse_interval := HandReuseType.DEFAULT_INTERVAL
 @export_group("Timing")
 ## Match-start gate only. Post-recovery pacing is owned by OpponentAI.
 @export_range(0.0, 30.0, 0.05, "or_greater") var initial_ready_delay := 1.0
-## Extra IDLE gate after Recovery. Keep near 0 — AI attack_interval is the pacing timer.
+## Extra IDLE gate after Recovery. Keep at 0. Combo timing comes from recovery cancel and hand reuse.
 @export_range(0.0, 30.0, 0.05, "or_greater") var attack_cooldown := 0.0
 @export_group("Debug")
 @export var print_attack_start := false
@@ -50,6 +50,7 @@ var _action_speed_snapshot := 1.0
 var _scaled_startup := 0.0
 var _scaled_recovery := 0.0
 var _ready_gate := true
+var hand_reuse: HandReuseType = HandReuseType.new()
 
 
 func get_action_speed_snapshot() -> float:
@@ -79,8 +80,6 @@ func _ready() -> void:
 		push_error("OpponentAttackState requires opponent stamina.")
 		set_process(false)
 		return
-	if action_speed_settings == null:
-		action_speed_settings = ActionSpeedSettingsType.new()
 
 	_time_remaining = initial_ready_delay
 	_ready_gate = true
@@ -176,6 +175,11 @@ func cancel_attack() -> void:
 	_enter_state(AttackState.IDLE, attack_cooldown)
 
 
+func is_hand_ready(attack_type: int) -> bool:
+	hand_reuse.interval = same_hand_reuse_interval
+	return hand_reuse.is_ready(attack_type)
+
+
 func is_ready_for_command() -> bool:
 	if hit_stun != null and hit_stun.is_hit_stunned():
 		return false
@@ -197,13 +201,15 @@ func get_attack_data(attack_type: int) -> AttackDataType:
 func get_affordable_attacks() -> Array[AttackDataType]:
 	var result: Array[AttackDataType] = []
 	for attack in attacks:
-		if opponent_stamina.can_afford(attack.stamina_cost):
+		if opponent_stamina.can_afford(_effective_cost(attack.stamina_cost)):
 			result.append(attack)
 	return result
 
 
 ## AI entry point. Snapshot speed BEFORE stamina cost.
 func try_execute_attack(attack_type: int) -> bool:
+	if _new_actions_locked():
+		return false
 	if hit_stun != null and hit_stun.is_hit_stunned():
 		return false
 	if not is_ready_for_command():
@@ -212,54 +218,54 @@ func try_execute_attack(attack_type: int) -> bool:
 	var attack := get_attack_data(attack_type)
 	if attack == null:
 		return false
-	if not opponent_stamina.can_afford(attack.stamina_cost):
+	if not opponent_stamina.can_afford(_effective_cost(attack.stamina_cost)):
+		return false
+	if not is_hand_ready(attack_type):
 		return false
 
-	var before := opponent_stamina.current_stamina
-	_action_speed_snapshot = action_speed_settings.calculate_action_speed(before)
-	_scaled_startup = action_speed_settings.scale_duration(
-		attack.startup_time,
-		_action_speed_snapshot
-	)
-	_scaled_recovery = action_speed_settings.scale_duration(
-		attack.recovery_time,
-		_action_speed_snapshot
-	)
+	_action_speed_snapshot = 1.0
+	_scaled_startup = attack.startup_time
+	_scaled_recovery = attack.recovery_time
 
-	if not opponent_stamina.spend_for_attack(attack.stamina_cost):
+	if not opponent_stamina.spend_for_attack(_effective_cost(attack.stamina_cost)):
 		_action_speed_snapshot = 1.0
 		return false
 
 	current_attack = attack
 	_ready_gate = false
 	_action_token += 1
+	hand_reuse.note_started(attack_type)
 	_enter_state(AttackState.STARTUP, _scaled_startup)
 	attack_started.emit(attack)
 
 	if print_attack_start:
 		print(
-			"Opponent %s | Cost: %.0f | Stamina: %.0f -> %.0f"
+			"Opponent %s | Cost: %.0f | Stamina: %.0f"
 			% [
 				ATTACK_NAMES[attack.attack_type],
 				attack.stamina_cost,
-				before,
 				opponent_stamina.current_stamina,
 			]
 		)
 	if print_action_speed:
 		print(
-			"Opponent %s | Stamina: %.0f | Action Speed: %.2f | Startup: %.2f -> %.2f | Recovery: %.2f -> %.2f"
+			"Opponent %s | Startup: %.2f | Recovery: %.2f"
 			% [
 				ATTACK_NAMES[attack.attack_type],
-				before,
-				_action_speed_snapshot,
-				attack.startup_time,
 				_scaled_startup,
-				attack.recovery_time,
 				_scaled_recovery,
 			]
 		)
 	return true
+
+
+func _effective_cost(base_cost: float) -> float:
+	if not is_inside_tree():
+		return base_cost
+	var manager = preload("res://scripts/trait_manager.gd").find(get_tree())
+	if manager == null:
+		return base_cost
+	return preload("res://scripts/trait_math.gd").attack_cost(base_cost, manager.opponent_traits)
 
 
 func _enter_state(next_state: AttackState, duration: float) -> void:
@@ -267,3 +273,10 @@ func _enter_state(next_state: AttackState, duration: float) -> void:
 	_phase_duration = maxf(duration, 0.0)
 	_time_remaining = _phase_duration
 	state_changed.emit(current_state, current_attack)
+
+
+func _new_actions_locked() -> bool:
+	if not is_inside_tree():
+		return false
+	var knockdown := get_node_or_null("../KnockdownManager")
+	return knockdown != null and knockdown.has_method("new_actions_locked") and knockdown.new_actions_locked()

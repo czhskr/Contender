@@ -3,7 +3,7 @@ extends Node
 
 const AttackDataType = preload("res://scripts/attack_data.gd")
 const PlayerStaminaType = preload("res://scripts/player_stamina.gd")
-const ActionSpeedSettingsType = preload("res://scripts/action_speed_settings.gd")
+const HandReuseType = preload("res://scripts/hand_reuse.gd")
 
 signal state_changed(state: AttackState, attack: int)
 signal attack_rejected(requested_attack: int, current_attack: int)
@@ -24,8 +24,8 @@ const ATTACK_NAMES := [
 
 @export var attacks: Array[AttackDataType] = []
 @export var player_stamina: PlayerStaminaType
-@export var action_speed_settings: ActionSpeedSettingsType
 @export var hit_stun: Node
+@export var same_hand_reuse_interval := HandReuseType.DEFAULT_INTERVAL
 
 @export_group("Debug")
 @export var print_action_speed := true
@@ -42,6 +42,7 @@ var _action_token := 0
 var _action_speed_snapshot := 1.0
 var _scaled_startup := 0.0
 var _scaled_recovery := 0.0
+var hand_reuse: HandReuseType = HandReuseType.new()
 
 
 func get_action_speed_snapshot() -> float:
@@ -63,8 +64,6 @@ func get_active_duration() -> float:
 
 
 func _ready() -> void:
-	if action_speed_settings == null:
-		action_speed_settings = ActionSpeedSettingsType.new()
 	set_process(false)
 
 
@@ -78,7 +77,13 @@ func _process(delta: float) -> void:
 
 
 func try_start_attack(attack: int) -> bool:
+	if _new_actions_locked():
+		attack_rejected.emit(attack, current_attack)
+		return false
 	if not can_start_attack():
+		attack_rejected.emit(attack, current_attack)
+		return false
+	if not is_hand_ready(attack):
 		attack_rejected.emit(attack, current_attack)
 		return false
 
@@ -87,40 +92,33 @@ func try_start_attack(attack: int) -> bool:
 		push_error("Attack data is missing for attack type %d." % attack)
 		return false
 
-	## Snapshot before combat_prototype spends stamina cost.
-	var stamina_now := (
-		player_stamina.current_stamina if player_stamina != null else 100.0
-	)
-	_action_speed_snapshot = action_speed_settings.calculate_action_speed(stamina_now)
-	_scaled_startup = action_speed_settings.scale_duration(
-		attack_data.startup_time,
-		_action_speed_snapshot
-	)
-	_scaled_recovery = action_speed_settings.scale_duration(
-		attack_data.recovery_time,
-		_action_speed_snapshot
-	)
+	## Timing is attack-data only. Stamina does not slow Startup or Recovery.
+	_action_speed_snapshot = 1.0
+	_scaled_startup = attack_data.startup_time
+	_scaled_recovery = attack_data.recovery_time
 
 	_current_data = attack_data
 	current_attack = attack
 	_action_token += 1
+	hand_reuse.note_started(attack)
 	set_process(true)
 	_enter_state(AttackState.STARTUP, _scaled_startup)
 
 	if print_action_speed:
 		print(
-			"Player %s | Stamina: %.0f | Action Speed: %.2f | Startup: %.2f -> %.2f | Recovery: %.2f -> %.2f"
+			"Player %s | Startup: %.2f | Recovery: %.2f"
 			% [
 				ATTACK_NAMES[attack],
-				stamina_now,
-				_action_speed_snapshot,
-				attack_data.startup_time,
 				_scaled_startup,
-				attack_data.recovery_time,
 				_scaled_recovery,
 			]
 		)
 	return true
+
+
+func is_hand_ready(attack: int) -> bool:
+	hand_reuse.interval = same_hand_reuse_interval
+	return hand_reuse.is_ready(attack)
 
 
 func can_start_attack() -> bool:
@@ -201,3 +199,10 @@ func get_attack_data(attack: int) -> AttackDataType:
 			return attack_data
 
 	return null
+
+
+func _new_actions_locked() -> bool:
+	if not is_inside_tree():
+		return false
+	var knockdown := get_node_or_null("../KnockdownManager")
+	return knockdown != null and knockdown.has_method("new_actions_locked") and knockdown.new_actions_locked()

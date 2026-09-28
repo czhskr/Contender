@@ -78,15 +78,17 @@ func _on_decision_required() -> void:
 	result.player_total_score = player_total
 	result.opponent_total_score = opponent_total
 
-	if player_total > opponent_total:
+	if round_manager != null and round_manager.player_round_wins != round_manager.opponent_round_wins:
+		if round_manager.player_round_wins > round_manager.opponent_round_wins:
+			result.winner = MatchResultDataScript.Winner.PLAYER
+		else:
+			result.winner = MatchResultDataScript.Winner.OPPONENT
+	elif player_total > opponent_total:
 		result.winner = MatchResultDataScript.Winner.PLAYER
-		result.result_type = MatchResultDataScript.ResultType.DECISION
 	elif opponent_total > player_total:
 		result.winner = MatchResultDataScript.Winner.OPPONENT
-		result.result_type = MatchResultDataScript.ResultType.DECISION
 	else:
-		result.winner = MatchResultDataScript.Winner.NONE
-		result.result_type = MatchResultDataScript.ResultType.DRAW
+		result.winner = MatchResultDataScript.Winner.PLAYER
 
 	latest_result = result
 	if print_events:

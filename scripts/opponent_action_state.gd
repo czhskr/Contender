@@ -3,7 +3,6 @@ extends Node
 
 ## Lightweight opponent defense/evade state driven by OpponentAI.
 
-const ActionSpeedSettingsType = preload("res://scripts/action_speed_settings.gd")
 const OpponentStaminaType = preload("res://scripts/opponent_stamina.gd")
 const OpponentAttackStateType = preload("res://scripts/opponent_attack_state.gd")
 
@@ -34,7 +33,6 @@ const STATE_NAMES := [
 
 @export var attack_state: OpponentAttackStateType
 @export var opponent_stamina: OpponentStaminaType
-@export var action_speed_settings: ActionSpeedSettingsType
 @export var hit_stun: Node
 
 @export_group("Evasion Timing")
@@ -53,8 +51,6 @@ var _post_evade_lock_remaining := 0.0
 
 
 func _ready() -> void:
-	if action_speed_settings == null:
-		action_speed_settings = ActionSpeedSettingsType.new()
 	if attack_state != null:
 		attack_state.state_changed.connect(_on_attack_state_changed)
 	set_process(false)
@@ -91,19 +87,24 @@ func try_start_evasion(evasion: OpponentState) -> bool:
 		return false
 
 	var base_window := slip_duration
-	var stamina_now := (
-		opponent_stamina.current_stamina if opponent_stamina != null else 100.0
-	)
-	var action_speed := action_speed_settings.calculate_action_speed(stamina_now)
-	var total_lock := action_speed_settings.scale_duration(base_window, action_speed)
+	base_window = _scaled_slip_window(base_window)
 	_evade_window_remaining = base_window
-	_post_evade_lock_remaining = maxf(total_lock - base_window, 0.0)
+	_post_evade_lock_remaining = 0.0
 
 	_guard_held = false
 	_enter_state(evasion)
 	_enter_evasion_phase(EvasionPhase.EVADING, base_window)
 	set_process(true)
 	return true
+
+
+func _scaled_slip_window(base_window: float) -> float:
+	if not is_inside_tree():
+		return base_window
+	var manager = preload("res://scripts/trait_manager.gd").find(get_tree())
+	if manager == null:
+		return base_window
+	return base_window * preload("res://scripts/trait_math.gd").product(manager.opponent_traits, "slip_duration")
 
 
 func set_guard_held(is_held: bool) -> void:

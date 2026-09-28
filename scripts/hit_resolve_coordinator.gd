@@ -38,6 +38,12 @@ func _schedule_flush() -> void:
 	call_deferred("_flush")
 
 
+func _flush_pending_opponent_defense() -> void:
+	var ai: Node = get_parent().get_node_or_null("OpponentAI") if get_parent() != null else null
+	if ai != null and ai.has_method("resolve_pending_defense_now"):
+		ai.resolve_pending_defense_now()
+
+
 func _flush() -> void:
 	_flush_scheduled = false
 	var player_attack := _pending_player_attack
@@ -53,6 +59,7 @@ func _flush() -> void:
 	## after each emit; queued attack_data means opponent resolve does not need
 	## the attack state to still be ACTIVE.
 	if player_attack >= 0 and offense_resolver != null:
+		_flush_pending_opponent_defense()
 		offense_resolver.resolve_hit_now(player_attack)
 	if opponent_data != null and defense_resolver != null:
 		defense_resolver.resolve_attack(opponent_data)

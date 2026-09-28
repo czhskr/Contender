@@ -1,12 +1,12 @@
 class_name KnockdownMeter
 extends Node
 
-## Accumulates knockdown damage from hits. Reaches 100 → Knockdown (not Final KO).
+## Accumulates knockdown damage from hits. Reaches max → Knockdown (not Final KO).
 
 signal meter_changed(current_meter: float, max_meter: float)
 signal meter_filled()
 
-@export_range(1.0, 1000.0, 1.0, "or_greater") var max_meter := 100.0
+@export_range(1.0, 1000.0, 1.0, "or_greater") var max_meter := 300.0
 @export_range(0.0, 1000.0, 0.1, "or_greater") var initial_meter := 0.0
 
 var current_meter := 0.0

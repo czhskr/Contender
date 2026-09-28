@@ -58,3 +58,26 @@ func score_round(round_number: int, player_stats, opponent_stats):
 
 	result.is_draw = false
 	return result
+
+
+## Best-of-three rounds cannot end drawn. Judge card may still be 10-10.
+func decide_round_winner(player_stats, opponent_stats, round_number: int) -> int:
+	var score = score_round(1, player_stats, opponent_stats)
+	if not score.is_draw:
+		if score.player_score > score.opponent_score:
+			return 1
+		return 2
+	var checks: Array = [
+		player_stats.knockdowns - opponent_stats.knockdowns,
+		player_stats.knockdown_damage_dealt - opponent_stats.knockdown_damage_dealt,
+		player_stats.attacks_landed - opponent_stats.attacks_landed,
+		(player_stats.attacks_evaded + player_stats.blocked_hits)
+			- (opponent_stats.attacks_evaded + opponent_stats.blocked_hits),
+		player_stats.attacks_thrown - opponent_stats.attacks_thrown,
+	]
+	for diff in checks:
+		if diff > 0.0:
+			return 1
+		if diff < 0.0:
+			return 2
+	return 1 if round_number % 2 == 1 else 2

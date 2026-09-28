@@ -80,6 +80,7 @@ const DEFENSE_RESULT_NAMES := ["HIT", "BLOCK", "EVADE"]
 
 
 func _ready() -> void:
+	_ensure_fatigue_vignette()
 	combat_input.attack_requested.connect(_on_attack_requested)
 	combat_input.evade_pressed.connect(_on_evade_pressed)
 	combat_input.evade_hold_changed.connect(_on_evade_hold_changed)
@@ -94,6 +95,9 @@ func _ready() -> void:
 	defense_resolver.player_knockdown.connect(_on_player_knockdown)
 	defense_resolver.attack_resolved.connect(_on_opponent_attack_resolved)
 	offense_resolver.attack_hit.connect(_on_player_attack_hit)
+	if opponent_ai != null and opponent_ai.has_method("_on_player_attack_resolved"):
+		if not offense_resolver.attack_hit.is_connected(opponent_ai._on_player_attack_resolved):
+			offense_resolver.attack_hit.connect(opponent_ai._on_player_attack_resolved)
 	knockdown_manager.hud_text_changed.connect(_on_match_hud_text_changed)
 	knockdown_manager.match_finished.connect(_on_match_finished)
 	knockdown_manager.match_state_changed.connect(_on_match_state_for_evade)
@@ -125,6 +129,23 @@ func _ready() -> void:
 	)
 	_on_match_hud_text_changed("FIGHTING")
 	_on_score_hud_text_changed("--")
+
+
+func _ensure_fatigue_vignette() -> void:
+	var vignette := get_node_or_null("FatigueVignette")
+	var created := vignette == null
+	if created:
+		vignette = preload("res://scripts/fatigue_vignette.gd").new()
+		vignette.name = "FatigueVignette"
+	vignette.player_stamina = stamina
+	vignette.opponent_visual = get_node_or_null("CombatVisualRoot/OpponentVisual")
+	if created:
+		add_child(vignette)
+		var hud := get_node_or_null("DebugHUD")
+		if hud != null:
+			move_child(vignette, hud.get_index())
+	elif vignette.has_method("setup"):
+		vignette.setup()
 
 
 func _process(_delta: float) -> void:
@@ -173,7 +194,10 @@ func _on_attack_requested(attack: int) -> void:
 	if _try_execute_player_attack(attack):
 		return
 
-	if _can_buffer_combat_action():
+	if _can_buffer_combat_action() or (
+		attack_state.current_state == attack_state.AttackState.IDLE
+		and not attack_state.is_hand_ready(attack)
+	):
 		action_buffer.buffer_attack(attack)
 		last_input_value.text = "Buffered: %s" % ATTACK_NAMES[attack]
 		return
@@ -264,10 +288,6 @@ func _try_begin_evade_window(direction: int) -> bool:
 			return false
 		attack_state.force_end_for_cancel()
 
-	## Leaving guard into evade — end guard first.
-	if player_state.is_guarding():
-		player_state.set_guard_held(false)
-
 	if player_evade.try_begin_window(direction):
 		_clear_action_buffer()
 		last_input_value.text = "Evade window: %s" % EVADE_NAMES[direction]
@@ -309,12 +329,6 @@ func _on_guard_changed(is_guarding: bool) -> void:
 		_update_guard_debug()
 		return
 
-	if is_guarding:
-		## Guard ends active evade window; movement can resume after release.
-		if player_evade != null:
-			player_evade.end_window()
-			player_evade.center_movement()
-
 	if is_guarding and not player_state.can_attack() and _can_buffer_combat_action():
 		player_state.set_guard_held(true)
 		action_buffer.buffer_guard()
@@ -334,6 +348,21 @@ func _on_guard_changed(is_guarding: bool) -> void:
 	)
 
 
+func _trait_attack_cost(base_cost: float) -> float:
+	var manager = preload("res://scripts/trait_manager.gd").find(get_tree())
+	if manager == null:
+		return base_cost
+	return preload("res://scripts/trait_math.gd").attack_cost(base_cost, manager.player_traits)
+
+
+func _attack_link_threshold() -> float:
+	var threshold: float = action_buffer.attack_to_attack
+	var manager = preload("res://scripts/trait_manager.gd").find(get_tree())
+	if manager != null:
+		threshold *= preload("res://scripts/trait_math.gd").product(manager.player_traits, "attack_link_threshold")
+	return clampf(threshold, 0.0, 1.0)
+
+
 func _can_buffer_combat_action() -> bool:
 	return attack_state.current_state != attack_state.AttackState.IDLE
 
@@ -347,20 +376,20 @@ func _try_execute_player_attack(attack: int) -> bool:
 		last_input_value.text = "Missing attack data: %s" % ATTACK_NAMES[attack]
 		return false
 
-	if not stamina.can_afford(attack_data.stamina_cost):
+	var cost: float = _trait_attack_cost(attack_data.stamina_cost)
+	if not stamina.can_afford(cost):
 		last_input_value.text = "Insufficient stamina: %s (%.1f / %.1f)" % [
 			ATTACK_NAMES[attack],
 			stamina.current_stamina,
-			attack_data.stamina_cost,
+			cost,
 		]
 		return false
 
 	if attack_state.try_start_attack(attack):
-		## Attack commits: end evade window and return POV toward center.
 		if player_evade != null:
 			player_evade.end_window()
 			player_evade.center_movement()
-		stamina.spend_for_attack(attack_data.stamina_cost)
+		stamina.spend_for_attack(cost)
 		_clear_action_buffer()
 		last_input_value.text = "Accepted: %s" % ATTACK_NAMES[attack]
 		return true
@@ -371,9 +400,15 @@ func _try_resolve_buffered_actions() -> void:
 	if action_buffer != null and action_buffer.has_buffered():
 		match action_buffer.kind:
 			action_buffer.Kind.ATTACK:
-				if not _can_cancel_into_attack():
-					return
 				var attack: int = action_buffer.attack_index
+				if attack_state.current_state == attack_state.AttackState.IDLE:
+					if not attack_state.is_hand_ready(attack):
+						return
+					if not _try_execute_player_attack(attack):
+						_clear_action_buffer()
+					return
+				if not _can_cancel_into_attack(attack):
+					return
 				_unlock_current_action_for_cancel()
 				if not _try_execute_player_attack(attack):
 					_clear_action_buffer()
@@ -415,10 +450,15 @@ func _unlock_current_action_for_cancel() -> void:
 		attack_state.force_end_for_cancel()
 
 
-func _can_cancel_into_attack() -> bool:
-	if attack_state.is_recovering():
-		return attack_state.get_recovery_progress() >= action_buffer.attack_to_attack
-	return false
+func _can_cancel_into_attack(next_attack: int) -> bool:
+	if not attack_state.is_recovering():
+		return false
+	return AttackData.can_recovery_cancel(
+		attack_state.get_recovery_progress(),
+		_attack_link_threshold(),
+		attack_state.current_attack,
+		next_attack
+	)
 
 
 func _can_cancel_into_evade() -> bool:
@@ -464,22 +504,10 @@ func _on_opponent_kd_changed(current_meter: float, max_meter: float) -> void:
 
 func _on_opponent_knockdown(attack: int) -> void:
 	last_input_value.text = "OPP DOWN! KD Meter full | %s" % ATTACK_NAMES[attack]
-	## Finisher Impact Freeze first; KnockdownManager/Count start after freeze ends.
-	if finisher_impact_freeze != null:
-		if finisher_impact_freeze.try_begin_finisher(knockdown_manager.DownedSide.OPPONENT):
-			return
-		## Duplicate emit while pending — do not begin_knockdown again.
-		return
-	knockdown_manager.begin_opponent_knockdown()
 
 
 func _on_player_knockdown(attack_type: int) -> void:
 	last_input_value.text = "PLAYER DOWN! KD Meter full | %s" % ATTACK_NAMES[attack_type]
-	if finisher_impact_freeze != null:
-		if finisher_impact_freeze.try_begin_finisher(knockdown_manager.DownedSide.PLAYER):
-			return
-		return
-	knockdown_manager.begin_player_knockdown()
 
 
 func _on_finisher_started(downed_side: int) -> void:
@@ -500,18 +528,13 @@ func _on_finisher_started(downed_side: int) -> void:
 
 
 func _on_finisher_finished(downed_side: int) -> void:
-	## Visual freeze already cleared by FinisherImpactFreeze (Player attacker → stance).
-	## Ensure Player AttackState is Idle before Opponent Down / Count (cancel is no-op if already Idle).
-	if downed_side == knockdown_manager.DownedSide.OPPONENT:
+	## KnockdownManager starts Count after this freeze. Clear a leftover player attack pose.
+	if downed_side == knockdown_manager.DownedSide.OPPONENT or downed_side == knockdown_manager.DownedSide.PLAYER:
 		if attack_state != null:
 			attack_state.cancel_attack()
 		if player_state != null:
 			player_state.force_reset_to_idle()
 		_clear_action_buffer()
-	if downed_side == knockdown_manager.DownedSide.PLAYER:
-		knockdown_manager.begin_player_knockdown()
-	elif downed_side == knockdown_manager.DownedSide.OPPONENT:
-		knockdown_manager.begin_opponent_knockdown()
 
 
 func _on_match_hud_text_changed(text: String) -> void:
@@ -614,33 +637,25 @@ func _on_player_attack_hit(
 
 
 func _apply_player_hit_reaction(was_knockdown: bool) -> void:
+	if not was_knockdown:
+		return
 	_clear_action_buffer()
 	_clear_evade_all()
 	if attack_state != null:
 		attack_state.cancel_attack()
 	if player_state != null:
 		player_state.force_reset_to_idle()
-	if was_knockdown:
-		if player_hit_stun != null:
-			player_hit_stun.clear_hit_stun()
-		return
-	if player_hit_stun != null:
-		player_hit_stun.apply_hit_stun()
 
 
 func _apply_opponent_hit_reaction(was_knockdown: bool) -> void:
+	if not was_knockdown:
+		return
 	if opponent_attack_state != null:
 		opponent_attack_state.cancel_attack()
 	if opponent_action_state != null:
 		opponent_action_state.force_reset_to_idle()
 	if opponent_ai != null and opponent_ai.has_method("clear_pending_combat_decisions"):
-		opponent_ai.clear_pending_combat_decisions()
-	if was_knockdown:
-		if opponent_hit_stun != null:
-			opponent_hit_stun.clear_hit_stun()
-		return
-	if opponent_hit_stun != null:
-		opponent_hit_stun.apply_hit_stun()
+		opponent_ai.clear_pending_combat_decisions(false)
 
 
 func _on_player_state_changed(state: int) -> void:

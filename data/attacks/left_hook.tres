@@ -7,6 +7,6 @@ script = ExtResource("1")
 attack_type = 2
 startup_time = 0.18
 active_time = 0.1
-recovery_time = 0.3
+recovery_time = 0.18
 stamina_cost = 7.0
 knockdown_damage = 13.0

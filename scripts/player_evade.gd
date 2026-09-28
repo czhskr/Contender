@@ -20,14 +20,13 @@ const PlayerStaminaType = preload("res://scripts/player_stamina.gd")
 
 @export_group("Gameplay Timing")
 @export_range(0.0, 2.0, 0.01, "or_greater") var evade_window := 0.18
-@export_range(0.0, 100.0, 0.1, "or_greater") var evade_stamina_cost := 4.0
 @export_range(0.0, 2.0, 0.01, "or_greater") var evade_retrigger_interval := 0.12
 
 @export_group("Movement Targets (POV — X locked; full-frame clipping)")
 ## Full-frame Player PNG fills the viewport: any X translation clips.
 ## Evade feel comes from World/Opponent parallax only.
-@export var left_offset := Vector2(0.0, 4.0)
-@export var right_offset := Vector2(0.0, 4.0)
+@export var left_offset := Vector2(0.0, 10.0)
+@export var right_offset := Vector2(0.0, 10.0)
 @export var down_offset := Vector2(0.0, 10.0)
 
 @export_group("Debug")
@@ -80,11 +79,7 @@ func offset_for_direction(direction: int) -> Vector2:
 			return Vector2.ZERO
 
 
-## Explicit press attempt: may open a gameplay window (stamina + retrigger).
-## Movement must already be updated by the caller.
-## Returns true if a new gameplay window started.
-## Active window is NOT extended when retrigger blocks; when retrigger is ready,
-## a fresh window replaces the previous one (no infinite extension via same press).
+## Explicit press: opens the gameplay window. Does not spend Stamina.
 func try_begin_window(direction: int) -> bool:
 	if direction == Direction.NONE:
 		return false
@@ -92,24 +87,25 @@ func try_begin_window(direction: int) -> bool:
 		if print_events:
 			print("Evade window blocked: retrigger %.2fs" % _retrigger_remaining)
 		return false
-	if player_stamina == null or not player_stamina.can_afford(evade_stamina_cost):
-		if print_events:
-			print("Evade window blocked: stamina")
-		return false
 
-	if not player_stamina.spend_for_action(evade_stamina_cost):
-		return false
-
-	## Replace any active window with a fresh timing window.
 	window_active = true
 	window_direction = direction
 	last_window_direction = direction
-	_window_remaining = evade_window
-	_retrigger_remaining = evade_retrigger_interval
+	_window_remaining = _scaled_player_value(evade_window, "evade_window")
+	_retrigger_remaining = _scaled_player_value(evade_retrigger_interval, "evade_retrigger")
 	evade_window_changed.emit(true, window_direction)
 	if print_events:
-		print("Evade window START | dir=%d | cost=%.0f" % [direction, evade_stamina_cost])
+		print("Evade window START | dir=%d" % direction)
 	return true
+
+
+func _scaled_player_value(base_value: float, field: String) -> float:
+	if not is_inside_tree():
+		return base_value
+	var manager = preload("res://scripts/trait_manager.gd").find(get_tree())
+	if manager == null:
+		return base_value
+	return base_value * preload("res://scripts/trait_math.gd").product(manager.player_traits, field)
 
 func is_window_active() -> bool:
 	return window_active

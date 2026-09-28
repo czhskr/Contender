@@ -259,6 +259,7 @@ func _check_evade_window_and_attack_cancel(failures: Array[String]) -> void:
 	## Use longer recovery so we can land inside the cancel window.
 	var data: AttackDataType = attack.get_attack_data(0)
 	data.recovery_time = 0.60
+	attack.hand_reuse.debug_now = attack.hand_reuse.now() + 1.0
 	if not attack.try_start_attack(0):
 		failures.append("Attack restart failed")
 		_free_bag(bag)
@@ -294,17 +295,14 @@ func _check_buffer_expiry(failures: Array[String]) -> void:
 
 
 func _check_hit_stun_clears_buffer(failures: Array[String]) -> void:
-	## Logic mirrored by combat_prototype: hit stun => clear buffer
 	var buffer := BufferType.new()
 	buffer.buffer_attack(2)
 	var stun := HitStunType.new()
 	stun.apply_hit_stun(0.35)
-	if not stun.is_hit_stunned():
-		failures.append("Hit stun did not apply")
-	buffer.clear()
-	if buffer.has_buffered():
-		failures.append("Buffer should clear on hit stun path")
-	## Knockdown path equivalent
+	if stun.is_hit_stunned():
+		failures.append("Normal HIT must not gameplay-stun")
+	if not buffer.has_buffered():
+		failures.append("A normal hit must leave the action buffer")
 	buffer.buffer_evade(CombatInputType.EvadeDirection.LEFT)
 	buffer.clear()
 	if buffer.has_buffered():
@@ -446,9 +444,10 @@ func _check_opponent_recovery_cancel(failures: Array[String]) -> void:
 				failures.append("Opponent follow-up stamina not spent (%.2f)" % spent)
 	## Hit stun must block cancel offense path
 	state.force_end_for_cancel()
+	state.hand_reuse.debug_now = 100000.0
 	hit_stun.apply_hit_stun(0.35)
-	if state.try_execute_attack(OpponentAttackDataType.AttackType.LEFT_STRAIGHT):
-		failures.append("Opponent must not attack during hit stun")
+	if not state.try_execute_attack(OpponentAttackDataType.AttackType.LEFT_STRAIGHT):
+		failures.append("A normal hit must not block the next legal attack")
 	stamina.queue_free()
 	hit_stun.queue_free()
 	state.queue_free()
@@ -460,8 +459,8 @@ func _check_ai_cancel_export(failures: Array[String]) -> void:
 		failures.append("AI attack_to_attack_cancel default 0.50")
 	if not ai.has_method("_can_recovery_cancel_offense"):
 		failures.append("AI missing _can_recovery_cancel_offense")
-	if not ai.has_method("_ensure_offense_ready"):
-		failures.append("AI missing _ensure_offense_ready")
+	if not ai.has_method("_commit_recovery_for"):
+		failures.append("AI missing _commit_recovery_for")
 	ai.queue_free()
 
 

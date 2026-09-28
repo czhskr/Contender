@@ -109,6 +109,8 @@ func _ready() -> void:
 	if knockdown_manager != null:
 		knockdown_manager.match_state_changed.connect(_on_match_state_changed)
 		knockdown_manager.recovered.connect(_on_recovered)
+		if knockdown_manager.has_signal("fighter_stood"):
+			knockdown_manager.fighter_stood.connect(_on_fighter_stood)
 	if player_evade != null and player_evade.has_signal("movement_target_changed"):
 		player_evade.movement_target_changed.connect(_on_evade_movement_target_changed)
 
@@ -247,7 +249,7 @@ func set_finisher_freeze(active: bool) -> void:
 
 
 func _on_match_state_changed(state: int) -> void:
-	if state == KnockdownManagerType.MatchState.PLAYER_DOWN:
+	if state == KnockdownManagerType.MatchState.PLAYER_DOWN or state == KnockdownManagerType.MatchState.DOUBLE_DOWN:
 		_knocked_down = true
 		_opponent_is_down_clear()
 		_stop_breathing()
@@ -261,7 +263,7 @@ func _on_match_state_changed(state: int) -> void:
 		if not _knocked_down and not _finisher_freeze:
 			_set_opponent_down_idle(true)
 	elif state == KnockdownManagerType.MatchState.FINAL_KO:
-		if knockdown_manager.downed_side == KnockdownManagerType.DownedSide.PLAYER:
+		if knockdown_manager.downed_side == KnockdownManagerType.DownedSide.PLAYER or knockdown_manager.downed_side == KnockdownManagerType.DownedSide.BOTH:
 			_knocked_down = true
 			_opponent_is_down_clear()
 			_stop_breathing()
@@ -275,7 +277,8 @@ func _on_match_state_changed(state: int) -> void:
 				_set_opponent_down_idle(true)
 	elif state == KnockdownManagerType.MatchState.FIGHTING:
 		_set_opponent_down_idle(false)
-		if not _knocked_down and _priority == Priority.KNOCKDOWN:
+		if _knocked_down or _priority == Priority.KNOCKDOWN:
+			_knocked_down = false
 			_clear_knockdown_impact()
 			_knockdown_offset = Vector2.ZERO
 			_action_effect_offset = Vector2.ZERO
@@ -293,6 +296,10 @@ func _set_opponent_down_idle(active: bool) -> void:
 func _opponent_is_down_clear() -> void:
 	_opponent_down_idle_target = Vector2.ZERO
 	_opponent_down_idle_offset = Vector2.ZERO
+
+
+func _on_fighter_stood(downed_side: int, at_count: int) -> void:
+	_on_recovered(downed_side, at_count)
 
 
 func _on_recovered(downed_side: int, _at_count: int) -> void:
@@ -332,6 +339,19 @@ func _show_guard() -> void:
 	if not _knocked_down:
 		_action_effect_offset = Vector2.ZERO
 	_show_pose("HIGH_GUARD", texture_high_guard)
+
+
+func reset_for_new_round() -> void:
+	_knocked_down = false
+	_finisher_freeze = false
+	_knockdown_impact_token += 1
+	_clear_knockdown_impact()
+	_knockdown_offset = Vector2.ZERO
+	_action_effect_offset = Vector2.ZERO
+	_set_opponent_down_idle(false)
+	_opponent_down_idle_offset = Vector2.ZERO
+	_reset_pov_immediate()
+	_show_idle()
 
 
 func _show_idle() -> void:

@@ -4,3 +4,6 @@
 
 [resource]
 script = ExtResource("1")
+startup_time = 0.1
+active_time = 0.08
+recovery_time = 0.11

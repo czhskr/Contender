@@ -59,10 +59,10 @@ func _check_defaults(failures: Array[String]) -> void:
 		failures.append("Player breathing_amplitude != 6")
 	if not is_equal_approx(player.breathing_cycle_seconds, 1.6):
 		failures.append("Player breathing_cycle_seconds != 1.6")
-	if evade.left_offset != Vector2(0.0, 4.0):
-		failures.append("LEFT evade offset != (0, 4)")
-	if evade.right_offset != Vector2(0.0, 4.0):
-		failures.append("RIGHT evade offset != (0, 4)")
+	if evade.left_offset != Vector2(0.0, 10.0):
+		failures.append("LEFT evade offset != (0, 10)")
+	if evade.right_offset != Vector2(0.0, 10.0):
+		failures.append("RIGHT evade offset != (0, 10)")
 	if evade.down_offset != Vector2(0.0, 10.0):
 		failures.append("DOWN evade offset != (0, 10)")
 	if not is_equal_approx(opponent.breathing_amplitude, 6.0):
@@ -77,12 +77,12 @@ func _check_defaults(failures: Array[String]) -> void:
 		failures.append("opponent knockdown_impact_shake_duration != 0.18")
 	if not is_equal_approx(player.knockdown_impact_shake_y, 6.0):
 		failures.append("player knockdown_impact_shake_y != 6")
-	if not is_equal_approx(visual_root.parallax_crowd_x, 20.0):
-		failures.append("parallax_crowd_x != 20")
-	if not is_equal_approx(visual_root.parallax_ring_x, 45.0):
-		failures.append("parallax_ring_x != 45")
-	if not is_equal_approx(visual_root.parallax_opponent_x, 90.0):
-		failures.append("parallax_opponent_x != 90")
+	if not is_equal_approx(visual_root.parallax_crowd_x, 30.0):
+		failures.append("parallax_crowd_x != 30")
+	if not is_equal_approx(visual_root.parallax_ring_x, 65.0):
+		failures.append("parallax_ring_x != 65")
+	if not is_equal_approx(visual_root.parallax_opponent_x, 130.0):
+		failures.append("parallax_opponent_x != 130")
 	if not is_equal_approx(visual_root.evade_passby_offset_x, 130.0):
 		failures.append("evade_passby must stay 130")
 	if not is_equal_approx(visual_root.evade_visual_hold_seconds, 0.20):
@@ -152,8 +152,8 @@ func _check_slip_pov_absolute(failures: Array[String]) -> void:
 		player._process(0.02)
 	if absf(player.pov_offset.x) > 0.01:
 		failures.append("Evade Left POV X must be 0")
-	if not is_equal_approx(player.pov_offset.y, 4.0):
-		failures.append("Evade Left POV Y expected +4 (got %.2f)" % player.pov_offset.y)
+	if not is_equal_approx(player.pov_offset.y, 10.0):
+		failures.append("Evade Left POV Y expected +10 (got %.2f)" % player.pov_offset.y)
 	evade.set_movement_direction(PlayerEvadeType.Direction.RIGHT)
 	for _j in 10:
 		player._process(0.02)
@@ -428,21 +428,21 @@ func _check_attack_to_guard_threshold(failures: Array[String]) -> void:
 func _check_opponent_recovery(failures: Array[String]) -> void:
 	var left = load("res://data/opponent_attacks/left_straight.tres")
 	var right = load("res://data/opponent_attacks/right_straight.tres")
-	if left == null or not is_equal_approx(left.recovery_time, 0.50):
+	if left == null or not is_equal_approx(left.recovery_time, 0.11):
 		failures.append(
-			"Opp L Straight recovery expected 0.50, got %s"
+			"Opp L Straight recovery expected 0.11, got %s"
 			% str(left.recovery_time if left else null)
 		)
-	if right == null or not is_equal_approx(right.recovery_time, 0.55):
+	if right == null or not is_equal_approx(right.recovery_time, 0.14):
 		failures.append(
-			"Opp R Straight recovery expected 0.55, got %s"
+			"Opp R Straight recovery expected 0.14, got %s"
 			% str(right.recovery_time if right else null)
 		)
-	if left != null and not is_equal_approx(left.startup_time, 0.8):
+	if left != null and not is_equal_approx(left.startup_time, 0.10):
 		failures.append("Opp L Straight startup changed")
-	if left != null and not is_equal_approx(left.active_time, 0.1):
+	if left != null and not is_equal_approx(left.active_time, 0.08):
 		failures.append("Opp L Straight active changed")
-	if right != null and not is_equal_approx(right.startup_time, 0.9):
+	if right != null and not is_equal_approx(right.startup_time, 0.14):
 		failures.append("Opp R Straight startup changed")
 
 
@@ -522,7 +522,7 @@ func _check_opponent_down_coverage(failures: Array[String]) -> void:
 	var lift := root_v.max_opponent_upward_lift()
 	if not is_equal_approx(lift, 85.0):
 		failures.append("Max upward lift expected 85, got %.2f" % lift)
-	if not is_equal_approx(root_v.parallax_opponent_x, 90.0):
+	if not is_equal_approx(root_v.parallax_opponent_x, 130.0):
 		failures.append("Opponent horizontal parallax changed")
 	if not is_equal_approx(root_v.parallax_opponent_down_y, 40.0):
 		failures.append("Opponent DOWN parallax changed")
@@ -539,10 +539,11 @@ func _check_opponent_down_coverage(failures: Array[String]) -> void:
 
 	var opaque_left := 437.0 * scale
 	var opaque_right := 1106.0 * scale
-	var left_edge := opponent.asset_base_position.x - 90.0 + opaque_left
-	var right_edge := opponent.asset_base_position.x + 90.0 + opaque_right
+	var shift := root_v.parallax_opponent_x + root_v.evade_passby_offset_x
+	var left_edge := opponent.asset_base_position.x - shift + opaque_left
+	var right_edge := opponent.asset_base_position.x + shift + opaque_right
 	if left_edge < -0.5 or right_edge > 1152.5:
-		failures.append("Horizontal ±90 clips idle opaque bounds")
+		failures.append("Horizontal parallax plus pass-by clips idle opaque bounds")
 
 	opponent._stop_breathing()
 	opponent.set_parallax_offset(Vector2(0.0, -40.0))
@@ -584,8 +585,8 @@ func _check_scene(failures: Array[String]) -> void:
 			failures.append("CombatVisualRoot.background_visual not wired")
 		if visual_root.opponent_visual == null:
 			failures.append("CombatVisualRoot.opponent_visual not wired")
-		if not is_equal_approx(visual_root.parallax_opponent_x, 90.0):
-			failures.append("Scene parallax_opponent_x != 90")
+		if not is_equal_approx(visual_root.parallax_opponent_x, 130.0):
+			failures.append("Scene parallax_opponent_x != 130")
 	var player_v = scene.get_node_or_null("CombatVisualRoot/PlayerVisual")
 	if player_v != null:
 		if player_v.player_evade == null:
@@ -597,7 +598,7 @@ func _check_scene(failures: Array[String]) -> void:
 	var evade_node = scene.get_node_or_null("PlayerEvade")
 	if evade_node == null:
 		failures.append("PlayerEvade missing")
-	elif evade_node.left_offset != Vector2(0.0, 4.0):
+	elif evade_node.left_offset != Vector2(0.0, 10.0):
 		failures.append("Scene LEFT evade offset wrong")
 	var opp_v = scene.get_node_or_null("CombatVisualRoot/OpponentVisual")
 	if opp_v != null and not is_equal_approx(opp_v.attack_pose_hold_seconds, 0.20):

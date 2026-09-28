@@ -8,13 +8,13 @@ extends Resource
 
 @export_group("Reaction")
 ## Delay after player attack Startup before AI may defend.
-@export_range(0.05, 2.0, 0.01, "or_greater") var reaction_delay := 0.28
+@export_range(0.05, 2.0, 0.01, "or_greater") var reaction_delay := 0.16
 @export_range(0.0, 1.0, 0.01) var reaction_delay_variance := 0.08
 
 @export_group("Offense Timing")
 @export_range(0.0, 10.0, 0.01, "or_greater") var attack_interval_min := 0.1
 @export_range(0.0, 10.0, 0.01, "or_greater") var attack_interval_max := 0.3
-@export_range(0.0, 1.0, 0.01) var aggression := 0.55
+@export_range(0.0, 1.0, 0.01) var aggression := 0.62
 
 @export_group("Follow-up Pressure")
 @export_range(0.0, 1.0, 0.01) var follow_up_chance := 0.6

@@ -26,12 +26,9 @@
 [ext_resource type="Script" uid="uid://3f7kidgjjo2t" path="res://scripts/combat_stats.gd" id="29_combat_stats"]
 [ext_resource type="Script" uid="uid://coa0x6lejw6q8" path="res://scripts/round_scorer.gd" id="30_round_scorer"]
 [ext_resource type="Script" uid="uid://uyri7bmsuwrd" path="res://scripts/match_decision.gd" id="31_match_decision"]
-[ext_resource type="Resource" path="res://data/action_speed/player_action_speed.tres" id="33_player_speed"]
-[ext_resource type="Resource" path="res://data/action_speed/opponent_action_speed.tres" id="34_opponent_speed"]
 [ext_resource type="Script" uid="uid://by8wfbn3kuvcn" path="res://scripts/opponent_action_state.gd" id="35_opponent_action"]
 [ext_resource type="Script" uid="uid://j7g0tgbvywtm" path="res://scripts/opponent_ai.gd" id="36_opponent_ai"]
 [ext_resource type="Script" uid="uid://blqub7yd1qfu8" path="res://scripts/hit_stun.gd" id="37_hit_stun"]
-[ext_resource type="Resource" uid="uid://bmr82bxhbo60n" path="res://data/difficulty/normal.tres" id="38_difficulty_normal"]
 [ext_resource type="Script" uid="uid://bfddfnxqpdwy7" path="res://scripts/combat_visual_root.gd" id="39_combat_visual_root"]
 [ext_resource type="Script" uid="uid://fw84eue4egov" path="res://scripts/background_visual.gd" id="40_background_visual"]
 [ext_resource type="Script" uid="uid://6l3j5xrfipsk" path="res://scripts/player_visual.gd" id="41_player_visual"]
@@ -102,7 +99,6 @@ opponent_attack_state = NodePath("../OpponentAttackState")
 script = ExtResource("4_state")
 attacks = Array[ExtResource("3_data_type")]([ExtResource("5_left_straight"), ExtResource("6_right_straight"), ExtResource("7_left_hook"), ExtResource("8_right_hook")])
 player_stamina = NodePath("../PlayerStamina")
-action_speed_settings = ExtResource("33_player_speed")
 hit_stun = NodePath("../PlayerHitStun")
 
 [node name="PlayerStamina" type="Node" parent="." unique_id=664051470]
@@ -115,7 +111,6 @@ script = ExtResource("44_kd_meter")
 script = ExtResource("10_action_state")
 attack_state = NodePath("../PlayerAttackState")
 player_stamina = NodePath("../PlayerStamina")
-action_speed_settings = ExtResource("33_player_speed")
 hit_stun = NodePath("../PlayerHitStun")
 
 [node name="PlayerDefenseResolver" type="Node" parent="." unique_id=854589743 node_paths=PackedStringArray("player_action_state", "player_evade", "player_knockdown_meter", "opponent_attack_state", "hit_resolve_coordinator")]
@@ -136,7 +131,6 @@ script = ExtResource("44_kd_meter")
 script = ExtResource("35_opponent_action")
 attack_state = NodePath("../OpponentAttackState")
 opponent_stamina = NodePath("../OpponentStamina")
-action_speed_settings = ExtResource("34_opponent_speed")
 hit_stun = NodePath("../OpponentHitStun")
 
 [node name="PlayerOffenseResolver" type="Node" parent="." unique_id=102926816 node_paths=PackedStringArray("player_attack_state", "opponent_action_state", "opponent_knockdown_meter", "hit_resolve_coordinator")]
@@ -150,12 +144,10 @@ hit_resolve_coordinator = NodePath("../HitResolveCoordinator")
 script = ExtResource("12_opponent_state")
 attacks = Array[ExtResource("11_opponent_data_type")]([ExtResource("15_opponent_left_straight"), ExtResource("16_opponent_right_straight"), ExtResource("17_opponent_left_hook"), ExtResource("18_opponent_right_hook")])
 opponent_stamina = NodePath("../OpponentStamina")
-action_speed_settings = ExtResource("34_opponent_speed")
 hit_stun = NodePath("../OpponentHitStun")
 
 [node name="OpponentAI" type="Node" parent="." unique_id=1706310605 node_paths=PackedStringArray("player_attack_state", "opponent_attack_state", "opponent_action_state", "opponent_stamina", "knockdown_manager", "round_manager", "opponent_hit_stun", "finisher_impact_freeze")]
 script = ExtResource("36_opponent_ai")
-difficulty = ExtResource("38_difficulty_normal")
 player_attack_state = NodePath("../PlayerAttackState")
 opponent_attack_state = NodePath("../OpponentAttackState")
 opponent_action_state = NodePath("../OpponentActionState")
@@ -190,7 +182,7 @@ opponent_recovery_settings = ExtResource("27_opponent_recovery")
 player_hit_stun = NodePath("../PlayerHitStun")
 opponent_hit_stun = NodePath("../OpponentHitStun")
 
-[node name="RoundManager" type="Node" parent="." unique_id=848370363 node_paths=PackedStringArray("knockdown_manager", "player_attack_state", "player_action_state", "opponent_attack_state", "opponent_action_state", "player_stamina", "opponent_stamina", "player_knockdown_meter", "opponent_knockdown_meter", "defense_resolver", "offense_resolver", "player_hit_stun", "opponent_hit_stun")]
+[node name="RoundManager" type="Node" parent="." unique_id=848370363 node_paths=PackedStringArray("knockdown_manager", "player_attack_state", "player_action_state", "opponent_attack_state", "opponent_action_state", "player_stamina", "opponent_stamina", "player_knockdown_meter", "opponent_knockdown_meter", "defense_resolver", "offense_resolver", "player_hit_stun", "opponent_hit_stun", "player_evade", "combat_input", "combat_visual_root")]
 script = ExtResource("28_round")
 knockdown_manager = NodePath("../KnockdownManager")
 player_attack_state = NodePath("../PlayerAttackState")
@@ -205,6 +197,9 @@ defense_resolver = NodePath("../PlayerDefenseResolver")
 offense_resolver = NodePath("../PlayerOffenseResolver")
 player_hit_stun = NodePath("../PlayerHitStun")
 opponent_hit_stun = NodePath("../OpponentHitStun")
+player_evade = NodePath("../PlayerEvade")
+combat_input = NodePath("../PlayerCombatInput")
+combat_visual_root = NodePath("../CombatVisualRoot")
 
 [node name="CombatStats" type="Node" parent="." unique_id=1035422726 node_paths=PackedStringArray("player_attack_state", "opponent_attack_state", "defense_resolver", "offense_resolver", "knockdown_manager", "round_manager")]
 script = ExtResource("29_combat_stats")

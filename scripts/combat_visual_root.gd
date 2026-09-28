@@ -26,9 +26,9 @@ const DisplayLayout = preload("res://scripts/visual_display_layout.gd")
 @export_group("World Parallax (Horizontal)")
 ## Closer layers move more. Evade Left → world +X; Evade Right → world -X.
 ## Stronger than legacy Slip (10/24/48) because Player X translation is locked at 0.
-@export_range(0.0, 200.0, 1.0, "or_greater") var parallax_crowd_x := 20.0
-@export_range(0.0, 200.0, 1.0, "or_greater") var parallax_ring_x := 45.0
-@export_range(0.0, 200.0, 1.0, "or_greater") var parallax_opponent_x := 90.0
+@export_range(0.0, 200.0, 1.0, "or_greater") var parallax_crowd_x := 30.0
+@export_range(0.0, 200.0, 1.0, "or_greater") var parallax_ring_x := 65.0
+@export_range(0.0, 300.0, 1.0, "or_greater") var parallax_opponent_x := 130.0
 
 @export_group("World Parallax (Down)")
 ## Explicit S/DOWN look-down. Kept within pass-by stack budget.
@@ -58,6 +58,11 @@ const DisplayLayout = preload("res://scripts/visual_display_layout.gd")
 @export_range(0.0, 400.0, 1.0, "or_greater") var evade_passby_offset_x := 130.0
 ## Modest so DOWN continuous + pass-by does not clip Opponent top (stack ≤ ~80).
 @export_range(0.0, 400.0, 1.0, "or_greater") var evade_down_passby_offset_y := 40.0
+## Straight glove is painted through screen center. Existing down parallax 40
+## plus pass-by 40 still leave that glove on the eye line. Extra lift is
+## presentation only, and only while the attack texture is showing.
+@export_range(0.0, 400.0, 1.0, "or_greater") var attack_down_miss_clearance := 250.0
+@export var print_evade_visual := false
 
 var base_position := Vector2.ZERO
 var shake_offset := Vector2.ZERO
@@ -180,12 +185,12 @@ func _on_evade_movement_target_changed(_target: Vector2, direction: int) -> void
 	match direction:
 		PlayerEvadeType.Direction.LEFT:
 			_head_lateral_target = 1.0
-			_head_down_target = 0.0
-			_weave_blend_target = 1.0
+			_head_down_target = 1.0
+			_weave_blend_target = 0.0
 		PlayerEvadeType.Direction.RIGHT:
 			_head_lateral_target = -1.0
-			_head_down_target = 0.0
-			_weave_blend_target = 1.0
+			_head_down_target = 1.0
+			_weave_blend_target = 0.0
 		PlayerEvadeType.Direction.DOWN:
 			_head_lateral_target = 0.0
 			_head_down_target = 1.0
@@ -197,9 +202,8 @@ func _on_evade_movement_target_changed(_target: Vector2, direction: int) -> void
 
 
 func _compose_head_parallax() -> void:
-	## Shared lateral + explicit down + position-based weave near center.
-	## weave peaks at lateral≈0 while LEFT/RIGHT intent is active (blend→1).
-	## Resting CENTER (blend→0) has no permanent dip.
+	## Lateral uses the same down channel as S, so settled height matches DOWN.
+	## Weave stays off for held A/D. It must not add extra depth on top of down.
 	var abs_lat := absf(_head_lateral)
 	var weave_factor := (1.0 - abs_lat) * (1.0 - abs_lat) * _weave_blend
 	weave_factor *= 1.0 - clampf(_head_down, 0.0, 1.0)
@@ -280,6 +284,14 @@ func _apply_parallax_offsets() -> void:
 			background_visual.set_ring_parallax(_ring_parallax)
 	if opponent_visual != null and opponent_visual.has_method("set_parallax_offset"):
 		opponent_visual.set_parallax_offset(_opponent_parallax)
+
+
+func reset_for_new_round() -> void:
+	clear_continuous_evade_presentation()
+	if opponent_visual != null and opponent_visual.has_method("reset_for_new_round"):
+		opponent_visual.reset_for_new_round()
+	if player_visual != null and player_visual.has_method("reset_for_new_round"):
+		player_visual.reset_for_new_round()
 
 
 func clear_continuous_evade_presentation() -> void:
@@ -406,6 +418,30 @@ func _begin_evade_passby_presentation() -> void:
 	)
 
 
+## Extra offset beyond world parallax while an attack texture is on screen.
+## Pass-by matches the existing evade presentation. Down adds the asset clearance.
+func attack_texture_evade_offsets() -> Dictionary:
+	var direction := _active_evade_window_direction()
+	var passby := Vector2.ZERO
+	match direction:
+		PlayerEvadeType.Direction.LEFT:
+			passby = Vector2(evade_passby_offset_x, 0.0)
+		PlayerEvadeType.Direction.RIGHT:
+			passby = Vector2(-evade_passby_offset_x, 0.0)
+		PlayerEvadeType.Direction.DOWN:
+			passby = Vector2(0.0, -evade_down_passby_offset_y)
+	var clearance := Vector2.ZERO
+	if direction == PlayerEvadeType.Direction.DOWN:
+		clearance = Vector2(0.0, -attack_down_miss_clearance)
+	return {"passby": passby, "clearance": clearance}
+
+
+func _active_evade_window_direction() -> int:
+	if player_evade == null or not player_evade.window_active:
+		return PlayerEvadeType.Direction.NONE
+	return player_evade.window_direction
+
+
 func _resolve_passby_offset() -> Vector2:
 	var dir := PlayerEvadeType.Direction.NONE
 	if player_evade != null:
@@ -437,6 +473,7 @@ func _on_match_state_changed(state: int) -> void:
 	if (
 		state == KnockdownManagerType.MatchState.PLAYER_DOWN
 		or state == KnockdownManagerType.MatchState.OPPONENT_DOWN
+		or state == KnockdownManagerType.MatchState.DOUBLE_DOWN
 		or state == KnockdownManagerType.MatchState.FINAL_KO
 		or state == KnockdownManagerType.MatchState.FIGHTING
 	):

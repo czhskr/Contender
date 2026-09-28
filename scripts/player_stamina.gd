@@ -2,13 +2,14 @@ class_name PlayerStamina
 extends Node
 
 signal stamina_changed(current_stamina: float, max_stamina: float)
+signal exhausted_changed(is_exhausted: bool)
 
 @export_group("Initial Values")
 @export_range(0.0, 1000.0, 0.1, "or_greater") var initial_current_stamina := 100.0
 @export_range(0.0, 1000.0, 0.1, "or_greater") var initial_max_stamina := 100.0
 
 @export_group("Regeneration")
-@export_range(0.0, 10.0, 0.05, "or_greater") var regeneration_delay := 1.25
+@export_range(0.0, 10.0, 0.05, "or_greater") var regeneration_delay := 0.65
 @export_range(0.0, 1000.0, 0.1, "or_greater") var regeneration_per_second := 12.0
 
 @export_group("Repeated Attack Fatigue")
@@ -16,9 +17,14 @@ signal stamina_changed(current_stamina: float, max_stamina: float)
 @export_range(1, 100, 1, "or_greater") var attacks_before_max_loss := 3
 @export_range(0.0, 100.0, 0.05, "or_greater") var max_stamina_loss_per_attack := 0.25
 
+@export_group("Exhausted")
+## Stay exhausted until stamina climbs back to this value.
+@export_range(0.0, 1000.0, 0.5, "or_greater") var exhausted_recovery_threshold := 25.0
+
 var current_stamina := 0.0
 var max_stamina := 0.0
 var regeneration_enabled := true
+var is_exhausted := false
 
 var _time_since_last_attack := INF
 var _time_since_regen_block := INF
@@ -28,6 +34,7 @@ var _consecutive_attack_count := 0
 func _ready() -> void:
 	max_stamina = initial_max_stamina
 	current_stamina = clampf(initial_current_stamina, 0.0, max_stamina)
+	_evaluate_exhausted()
 	stamina_changed.emit(current_stamina, max_stamina)
 
 
@@ -46,10 +53,11 @@ func _process(delta: float) -> void:
 		and current_stamina < max_stamina
 	):
 		current_stamina = minf(
-			current_stamina + regeneration_per_second * delta,
+			current_stamina + regeneration_per_second * _regen_scale(true) * delta,
 			max_stamina
 		)
 		stamina_changed.emit(current_stamina, max_stamina)
+		_evaluate_exhausted()
 
 
 func can_afford(stamina_cost: float) -> bool:
@@ -66,6 +74,7 @@ func restore_stamina(amount: float) -> float:
 	var restored := current_stamina - before
 	if restored > 0.0:
 		stamina_changed.emit(current_stamina, max_stamina)
+		_evaluate_exhausted()
 	return restored
 
 
@@ -90,15 +99,33 @@ func spend_for_attack(stamina_cost: float) -> bool:
 		current_stamina = minf(current_stamina, max_stamina)
 
 	stamina_changed.emit(current_stamina, max_stamina)
+	_evaluate_exhausted()
 	return true
 
 
-## Evade / non-attack spend: reset regen delay, no repeated-attack fatigue.
-func spend_for_action(stamina_cost: float) -> bool:
-	if not can_afford(stamina_cost):
-		return false
-	_time_since_regen_block = 0.0
-	current_stamina -= stamina_cost
+func reset_to_max() -> void:
+	current_stamina = max_stamina
+	_evaluate_exhausted()
 	stamina_changed.emit(current_stamina, max_stamina)
-	return true
+
+
+func _evaluate_exhausted() -> void:
+	var next := is_exhausted
+	if current_stamina <= 0.0:
+		next = true
+	elif current_stamina >= exhausted_recovery_threshold:
+		next = false
+	if next == is_exhausted:
+		return
+	is_exhausted = next
+	exhausted_changed.emit(is_exhausted)
+
+
+func _regen_scale(is_player: bool) -> float:
+	if not is_inside_tree():
+		return 1.0
+	var manager = preload("res://scripts/trait_manager.gd").find(get_tree())
+	if manager == null:
+		return 1.0
+	return preload("res://scripts/trait_math.gd").regen_multiplier(manager.traits_for_player(is_player))
 

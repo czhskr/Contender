@@ -335,7 +335,7 @@ func _check_player_finisher_then_knockdown(failures: Array[String]) -> void:
 					down_while_pending[0] = true
 	)
 
-	ctx.opp_meter.set_meter(95.0)
+	ctx.opp_meter.set_meter(ctx.opp_meter.max_meter - 1.0)
 	var start_ok := [false]
 	ctx.offense.opponent_knockdown.connect(
 		func(_a: int) -> void:
@@ -436,14 +436,14 @@ func _check_recovery_break_values(failures: Array[String]) -> void:
 	if opp_rec == null or not is_equal_approx(opp_rec.recovery_stamina_amount, 15.0):
 		failures.append("opponent recovery stamina +15 missing")
 	var km := KnockdownManagerType.new()
-	if not is_equal_approx(km.recovery_knockdown_meter, 50.0):
-		failures.append("recovery_knockdown_meter must stay 50")
+	if not is_equal_approx(km.recovery_meter_ratio, 0.5):
+		failures.append("recovery meter ratio must stay 0.5")
 	km.free()
 	var rm := RoundManagerType.new()
-	if not is_equal_approx(rm.round_stamina_recovery, 25.0):
-		failures.append("round break stamina +25 missing")
-	if not is_equal_approx(rm.round_knockdown_meter_recovery, 15.0):
-		failures.append("round break KD -15 missing")
+	if not is_equal_approx(rm.round_duration, 60.0):
+		failures.append("round duration must stay 60")
+	if rm.round_stamina_recovery != 0.0 or rm.round_knockdown_meter_recovery != 0.0:
+		failures.append("round carry-over recovery should be removed")
 	rm.free()
 
 

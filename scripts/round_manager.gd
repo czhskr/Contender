@@ -5,6 +5,8 @@ signal round_started(round_number: int)
 signal round_ended(round_number: int)
 signal break_started(completed_round: int, break_seconds: float)
 signal break_ended(next_round: int)
+signal trait_preview_started(round_number: int)
+signal series_finished(winner: int)
 signal decision_required
 signal match_stopped_by_ko(winner: int)
 signal time_changed(seconds_remaining: float)
@@ -18,6 +20,7 @@ enum RoundState {
 	BREAK,
 	DECISION_REQUIRED,
 	MATCH_FINISHED,
+	TRAIT_PREVIEW,
 }
 
 const AttackStateType = preload("res://scripts/player_attack_state.gd")
@@ -52,8 +55,14 @@ const KnockdownManagerType = preload("res://scripts/knockdown_manager.gd")
 @export_range(1, 15, 1, "or_greater") var total_rounds := 3
 @export_range(1.0, 600.0, 0.5, "or_greater") var round_duration := 60.0
 @export_range(0.0, 120.0, 0.5, "or_greater") var break_duration := 10.0
-@export_range(0.0, 1000.0, 0.5, "or_greater") var round_stamina_recovery := 25.0
-@export_range(0.0, 100.0, 1.0) var round_knockdown_meter_recovery := 15.0
+@export_range(0.0, 1000.0, 0.5, "or_greater") var round_stamina_recovery := 0.0
+@export_range(0.0, 100.0, 1.0) var round_knockdown_meter_recovery := 0.0
+@export var wins_to_finish := 2
+
+var player_round_wins := 0
+var opponent_round_wins := 0
+var _round_awarded := false
+var _preview_round := 1
 
 @export_group("Debug")
 @export var auto_start := true
@@ -67,10 +76,18 @@ var timer_paused := false
 
 
 func _ready() -> void:
+	if player_evade == null:
+		player_evade = get_node_or_null("../PlayerEvade")
+	if combat_input == null:
+		combat_input = get_node_or_null("../PlayerCombatInput")
+	if combat_visual_root == null:
+		combat_visual_root = get_node_or_null("../CombatVisualRoot")
 	if knockdown_manager != null:
 		knockdown_manager.match_state_changed.connect(_on_knockdown_state_changed)
 		knockdown_manager.recovered.connect(_on_knockdown_recovered)
 		knockdown_manager.match_finished.connect(_on_knockdown_match_finished)
+		if knockdown_manager.has_signal("round_voided"):
+			knockdown_manager.round_voided.connect(_on_round_voided)
 
 	_freeze_combat()
 	knockdown_manager.set_combat_control_enabled(false)
@@ -125,8 +142,12 @@ func start_match() -> void:
 	if round_state not in [RoundState.IDLE, RoundState.DECISION_REQUIRED]:
 		return
 	current_round = 0
-	timer_paused = false
-	_start_round(1)
+	player_round_wins = 0
+	opponent_round_wins = 0
+	timer_paused = true
+	_open_trait_preview(1)
+	if DisplayServer.get_name() == "headless":
+		call_deferred("confirm_round_start")
 
 
 func _start_round(round_number: int) -> void:
@@ -135,6 +156,7 @@ func _start_round(round_number: int) -> void:
 	break_time_remaining = 0.0
 	timer_paused = false
 	round_state = RoundState.FIGHTING
+	_round_awarded = false
 
 	_resume_combat()
 	knockdown_manager.set_combat_control_enabled(true)
@@ -164,43 +186,22 @@ func _end_round() -> void:
 
 	round_state_changed.emit(round_state)
 	round_ended.emit(current_round)
+	_award_decision_round()
 	_emit_hud()
 
-	if current_round >= total_rounds:
-		call_deferred("_enter_decision_required")
+	if _someone_clinched() or current_round >= total_rounds:
+		call_deferred("_finish_series_from_rounds", false)
 	else:
-		call_deferred("_start_break")
+		call_deferred("_open_trait_preview", current_round + 1)
 
 
 func _start_break() -> void:
 	round_state = RoundState.BREAK
-	break_time_remaining = break_duration
-
-	var player_restored: float = player_stamina.restore_stamina(round_stamina_recovery)
-	var opponent_restored: float = opponent_stamina.restore_stamina(round_stamina_recovery)
-	var player_kd_reduced := 0.0
-	var opponent_kd_reduced := 0.0
-	if player_knockdown_meter != null:
-		player_kd_reduced = player_knockdown_meter.reduce_meter(round_knockdown_meter_recovery)
-	if opponent_knockdown_meter != null:
-		opponent_kd_reduced = opponent_knockdown_meter.reduce_meter(round_knockdown_meter_recovery)
-
+	break_time_remaining = 0.0
 	if print_events:
-		print(
-			"BREAK %.0fs | Stamina +%.0f (P +%.1f / O +%.1f) | KD -%.0f (P -%.1f / O -%.1f)"
-			% [
-				break_duration,
-				round_stamina_recovery,
-				player_restored,
-				opponent_restored,
-				round_knockdown_meter_recovery,
-				player_kd_reduced,
-				opponent_kd_reduced,
-			]
-		)
-
+		print("BREAK | score %d-%d" % [player_round_wins, opponent_round_wins])
 	round_state_changed.emit(round_state)
-	break_started.emit(current_round, break_duration)
+	break_started.emit(current_round, break_time_remaining)
 	_emit_hud()
 
 
@@ -236,6 +237,7 @@ func _on_knockdown_state_changed(state: int) -> void:
 	if state in [
 		KnockdownManagerType.MatchState.PLAYER_DOWN,
 		KnockdownManagerType.MatchState.OPPONENT_DOWN,
+		KnockdownManagerType.MatchState.DOUBLE_DOWN,
 	]:
 		timer_paused = true
 		if print_events:
@@ -246,30 +248,180 @@ func _on_knockdown_state_changed(state: int) -> void:
 func _on_knockdown_recovered(_downed_side: int, _at_count: int) -> void:
 	if round_state != RoundState.FIGHTING:
 		return
+	if knockdown_manager != null and knockdown_manager.match_state != KnockdownManagerType.MatchState.FIGHTING:
+		return
 	timer_paused = false
 	if print_events:
 		print("Round timer resumed (recovery)")
 	_emit_hud()
 
 
-func _on_knockdown_match_finished(winner: int) -> void:
+func _on_round_voided() -> void:
 	if round_state == RoundState.MATCH_FINISHED:
 		return
+	var score_player := player_round_wins
+	var score_opponent := opponent_round_wins
+	print("ROUND %d VOID" % current_round)
+	print("Score remains %d-%d" % [score_player, score_opponent])
+	print("ROUND %d REMATCH" % current_round)
+	_open_trait_preview(current_round)
 
-	timer_paused = false
-	time_remaining = 0.0
-	break_time_remaining = 0.0
-	round_state = RoundState.MATCH_FINISHED
-	knockdown_manager.set_combat_control_enabled(false)
-	_freeze_combat()
 
+func _on_knockdown_match_finished(winner: int) -> void:
+	if round_state == RoundState.MATCH_FINISHED or _round_awarded:
+		return
+	var round_winner := 2 if winner == KnockdownManagerType.Winner.OPPONENT else 1
+	_award_round(round_winner)
+	if _someone_clinched():
+		_finish_series_from_rounds(true)
+	else:
+		_open_trait_preview(current_round + 1)
+
+
+func _award_decision_round() -> void:
+	var stats = _combat_stats()
+	var scorer = _round_scorer()
+	if stats == null or scorer == null or not stats.round_stats.has(current_round):
+		_award_round(1)
+		return
+	var snap = stats.round_stats[current_round]
+	_award_round(scorer.decide_round_winner(snap.player, snap.opponent, current_round))
+
+
+func _award_round(round_winner: int) -> void:
+	if _round_awarded:
+		return
+	_round_awarded = true
+	if round_winner == 1:
+		player_round_wins += 1
+	else:
+		opponent_round_wins += 1
 	if print_events:
-		var winner_label := "Player" if winner == KnockdownManagerType.Winner.PLAYER else "Opponent"
-		print("Match finished by KO | Winner: %s | Round system stopped" % winner_label)
+		print("ROUND %d WIN | Score %d-%d" % [current_round, player_round_wins, opponent_round_wins])
 
+
+func _someone_clinched() -> bool:
+	return player_round_wins >= wins_to_finish or opponent_round_wins >= wins_to_finish
+
+
+func _finish_series_from_rounds(by_ko: bool) -> void:
+	if round_state == RoundState.MATCH_FINISHED:
+		return
+	round_state = RoundState.MATCH_FINISHED
+	timer_paused = true
+	var winner := KnockdownManagerType.Winner.PLAYER
+	if opponent_round_wins > player_round_wins:
+		winner = KnockdownManagerType.Winner.OPPONENT
 	round_state_changed.emit(round_state)
-	match_stopped_by_ko.emit(winner)
+	series_finished.emit(1 if winner == KnockdownManagerType.Winner.PLAYER else 2)
+	if by_ko:
+		match_stopped_by_ko.emit(winner)
+	else:
+		decision_required.emit()
 	_emit_hud()
+
+
+func confirm_round_start() -> void:
+	if round_state != RoundState.TRAIT_PREVIEW:
+		return
+	_reset_fighters_for_round()
+	if knockdown_manager != null and knockdown_manager.has_method("reset_for_next_round"):
+		knockdown_manager.reset_for_next_round()
+	if combat_visual_root != null and combat_visual_root.has_method("reset_for_new_round"):
+		combat_visual_root.reset_for_new_round()
+	_start_round(_preview_round)
+
+
+func _open_trait_preview(round_number: int) -> void:
+	_preview_round = round_number
+	_round_awarded = false
+	round_state = RoundState.TRAIT_PREVIEW
+	timer_paused = true
+	var traits = _trait_manager()
+	if traits != null:
+		traits.reroll_round()
+	_freeze_combat()
+	if knockdown_manager != null:
+		knockdown_manager.set_combat_control_enabled(false)
+	round_state_changed.emit(round_state)
+	trait_preview_started.emit(round_number)
+	_emit_hud()
+	_show_trait_card(round_number)
+
+
+func _reset_fighters_for_round() -> void:
+	if player_stamina != null and player_stamina.has_method("reset_to_max"):
+		player_stamina.reset_to_max()
+	if opponent_stamina != null and opponent_stamina.has_method("reset_to_max"):
+		opponent_stamina.reset_to_max()
+	if player_knockdown_meter != null:
+		player_knockdown_meter.set_meter(0.0)
+	if opponent_knockdown_meter != null:
+		opponent_knockdown_meter.set_meter(0.0)
+	_clear_continuous_evade()
+	if player_hit_stun != null:
+		player_hit_stun.clear_hit_stun()
+	if opponent_hit_stun != null:
+		opponent_hit_stun.clear_hit_stun()
+	var ai = get_node_or_null("../OpponentAI")
+	if ai != null and ai.has_method("clear_pending_combat_decisions"):
+		ai.clear_pending_combat_decisions()
+		if ai.has_method("clear_follow_up"):
+			ai.clear_follow_up()
+
+
+func _show_trait_card(round_number: int) -> void:
+	var card = get_node_or_null("../TraitRoundCard")
+	if card == null:
+		card = preload("res://scripts/trait_round_card.gd").new()
+		card.name = "TraitRoundCard"
+		get_parent().add_child(card)
+		if not card.fight_pressed.is_connected(confirm_round_start):
+			card.fight_pressed.connect(confirm_round_start)
+	var traits = _trait_manager()
+	var player_traits: Array = traits.player_traits if traits != null else []
+	var opponent_traits: Array = traits.opponent_traits if traits != null else []
+	card.show_round(round_number, player_traits, opponent_traits, player_round_wins, opponent_round_wins)
+	_print_round_traits(player_traits, opponent_traits)
+
+
+func _trait_manager():
+	var node = get_node_or_null("../TraitManager")
+	if node == null and get_parent() != null:
+		node = preload("res://scripts/trait_manager.gd").new()
+		node.name = "TraitManager"
+		get_parent().add_child(node)
+	return node
+
+
+func _print_round_traits(player_traits: Array, opponent_traits: Array) -> void:
+	print("[TRAITS]")
+	print("Player:")
+	_print_trait_list(player_traits)
+	print("Opponent:")
+	_print_trait_list(opponent_traits)
+
+
+func _print_trait_list(traits: Array) -> void:
+	if traits.is_empty():
+		print("- none")
+		return
+	for entry in traits:
+		print("- %s" % entry.display_name)
+		print("  dealt_kd ×%.2f straight ×%.2f hook ×%.2f" % [entry.outgoing_kd, entry.straight_outgoing_kd, entry.hook_outgoing_kd])
+		print("  taken_kd ×%.2f block_taken ×%.2f attack_cost ×%.2f" % [entry.incoming_kd, entry.block_incoming_kd, entry.attack_cost])
+		if entry.iron_guard:
+			print("  block_kd = 0 (Iron Guard)")
+		if entry.last_stand:
+			print("  last_stand ×2 at stamina <= 25")
+
+
+func _combat_stats():
+	return get_node_or_null("../CombatStats")
+
+
+func _round_scorer():
+	return get_node_or_null("../RoundScorer")
 
 
 func _freeze_combat() -> void:

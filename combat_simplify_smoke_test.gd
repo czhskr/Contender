@@ -57,19 +57,15 @@ func _check_ai_active_attacks(failures: Array[String]) -> void:
 
 
 func _check_difficulty_resources(failures: Array[String]) -> void:
-	for path in [
-		"res://data/difficulty/easy.tres",
-		"res://data/difficulty/normal.tres",
-		"res://data/difficulty/hard.tres",
-	]:
-		var settings = load(path)
-		if settings == null:
-			failures.append("Missing difficulty: %s" % path)
-			continue
-		if settings.get("head_target_weight") != null:
-			failures.append("%s still has head_target_weight" % path)
-		if settings.get("counter_chance") != null:
-			failures.append("%s still has counter_chance" % path)
+	var settings = preload("res://scripts/opponent_difficulty_settings.gd").new()
+	if settings.get("head_target_weight") != null:
+		failures.append("baseline still has head_target_weight")
+	if settings.get("counter_chance") != null:
+		failures.append("baseline still has counter_chance")
+	if FileAccess.file_exists("res://data/difficulty/easy.tres"):
+		failures.append("easy difficulty resource should be removed")
+	if FileAccess.file_exists("res://data/difficulty/hard.tres"):
+		failures.append("hard difficulty resource should be removed")
 
 
 func _check_stats_shape(failures: Array[String]) -> void:

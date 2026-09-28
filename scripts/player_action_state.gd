@@ -6,7 +6,6 @@ extends Node
 
 const AttackStateType = preload("res://scripts/player_attack_state.gd")
 const PlayerStaminaType = preload("res://scripts/player_stamina.gd")
-const ActionSpeedSettingsType = preload("res://scripts/action_speed_settings.gd")
 
 signal state_changed(state: PlayerState)
 
@@ -24,7 +23,6 @@ const STATE_NAMES := [
 
 @export var attack_state: AttackStateType
 @export var player_stamina: PlayerStaminaType
-@export var action_speed_settings: ActionSpeedSettingsType
 @export var hit_stun: Node
 
 @export_group("Debug")
@@ -36,8 +34,6 @@ var _guard_held := false
 
 func _ready() -> void:
 	assert(attack_state != null, "PlayerActionState requires an attack state.")
-	if action_speed_settings == null:
-		action_speed_settings = ActionSpeedSettingsType.new()
 	attack_state.state_changed.connect(_on_attack_state_changed)
 
 	if print_state_changes:

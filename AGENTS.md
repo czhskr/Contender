@@ -53,13 +53,17 @@
 #### Continuous Evade (Player)
 
 - **Movement**: A/S/D hold → small POV target offset + World parallax. Recovery / post-lock **없음**. Player POV와 World weaving은 **SmoothDamp**. Opponent Down Nstance lowering만 **`move_toward`**.
-  - Player POV LEFT/RIGHT `(0, +4)` / DOWN `(0, +10)` / release → CENTER. **Player X = 0** (full-frame clipping 방지).
+  - Player POV LEFT/RIGHT/DOWN `(0, +10)` / release → CENTER. **Player X = 0** (full-frame clipping 방지).
   - LEFT↔RIGHT: World shared head-motion SmoothDamp + position-based weave dip. Presentation only.
-  - Horizontal World: Crowd **20** / Ring **45** / Opponent **90**.
-- **Timing Window**: 유효 press 시 `evade_window = 0.18`, `evade_stamina_cost = 4`, `evade_retrigger_interval = 0.12`
+  - Horizontal World: Crowd **30** / Ring **65** / Opponent **130**.
+- **Timing Window**: 유효 press 시 `evade_window = 0.18`, `evade_retrigger_interval = 0.12`. **Stamina 소모 없음.**
 - Stamina 부족이어도 **Movement는 허용**, Window만 거부
 - Hold 중 자동 재발동 없음. OS key-repeat 무시
 - Attack Startup/Active: Gameplay Evade 금지. Recovery `attack_to_evade = 0.35` 이후 cancel 가능
+- Same hand (Left Straight/Hook, Right Straight/Hook)는 Recovery 100%와 손 재사용 간격(기본 0.45초, 공격 시작부터)을 둘 다 채워야 한다. LEFT와 RIGHT 타이머는 따로다. Opposite hand는 `attack_to_attack` 0.50 캔슬만 쓰고, 전역 쿨다운은 없다. Pressure Fighter는 같은 손 재사용 간격을 줄이지 않는다.
+- LEFT/RIGHT Continuous Evade는 정착 시 DOWN과 같은 머리 높이다. 좌우는 사선 아래로 보인다. 가로는 Crowd 30 / Ring 65 / Opponent 130, 세로는 DOWN과 같은 Crowd 10 / Ring 22 / Opponent 40이다.
+- High Guard와 Continuous Evade는 같이 켜진다. Evade를 시작해도 Guard는 풀리지 않는다. Guard가 켜져 있으면 `p.highguard.png`, Guard만 놓으면 Evade가 남아 있어도 `p.Nstance.png`다. 판정은 EVADE, 그다음 BLOCK, 그다음 HIT다. 같이 켜도 스태미나는 쓰지 않는다.
+- 일반 HIT는 어느 쪽 공격도 멈추지 않는다. KD, 통계, 압박, 피격 연출은 들어간다. 행동 정지는 Knockdown과 Finisher Freeze뿐이다. 한 공격 token은 HIT/BLOCK/EVADE를 한 번만 resolve한다. Pressure Fighter는 반대 손 연계만 빠르게 한다.
 - Evade → Attack / Guard: slip recovery 없이 즉시 가능 (Attack 시작 시 window end + POV CENTER)
 - `PlayerActionState` = IDLE / ATTACKING / GUARD 만 (SLIP exclusive state 제거)
 
@@ -81,19 +85,20 @@ AI의 `"NONE"`은 방어를 선택하지 않은 **decision 결과 문자열**이
 
 ### 3.1 Stamina (행동 자원)
 
-- **자신의 공격 시작** 및 **유효 Evade Window 발동** 시에만 소모 (`stamina_cost` / `evade_stamina_cost`).
-- Visual Movement만으로는 Stamina 소모 없음.
+- **공격 시작 시에만** 소모 (`stamina_cost`). Evade / Guard / Movement / 피격은 소모하지 않는다.
+- Visual Movement와 Evade Window는 Stamina와 독립.
 - HIT / BLOCK / EVADE로 **피격 Stamina 감소 없음**.
 - 피격으로 **regen delay reset 없음**.
 - 자연 회복·반복 공격 fatigue·Round Break `+25` 유지.
-- **Low Stamina Action Speed**: `ActionSpeedSettings` — 공격 등 기존 대상. Continuous Evade Movement 속도에는 적용하지 않음.
-- Stamina는 **KO 확률·KD Meter 증가량에 직접 영향 없음**.
+- **Low Stamina는 행동 속도를 늦추지 않는다.** Startup / Active / Recovery는 Stamina와 무관.
+- Stamina가 낮을수록 **받는 KD damage가 커진다** (`KnockdownVulnerability`). EVADE는 항상 0. BLOCK은 `0.25 × vulnerability`.
+- Stamina 0 → `Exhausted` (공격만 불가). `exhausted_recovery_threshold` 25까지 유지. 경직/슬로우는 없다.
 
 노드: `PlayerStamina`, `OpponentStamina`.
 
 ### 3.2 Knockdown Meter (피격 게이지)
 
-- 범위 **0.0 ~ 100.0**, 초기 0.
+- 범위 **0.0 ~ 300.0**, 초기 0.
 - HP가 아니다. **≥ 100 → Knockdown** (Final KO가 아님).
 - 노드: `PlayerKnockdownMeter`, `OpponentKnockdownMeter` (`scripts/knockdown_meter.gd`).
 
@@ -104,7 +109,7 @@ Resolvers: `player_offense_resolver.gd`, `player_defense_resolver.gd`.
 
 | 결과 | KD Meter | Hit Stun | Stamina |
 |---|---|---|---|
-| **HIT** | `knockdown_damage` 전량 | **0.35s** (`HitStun`) | 변화 없음 |
+| **HIT** | `knockdown_damage` 전량 | 없음. 공격과 입력은 계속된다 | 변화 없음 |
 | **BLOCK** (High Guard) | × **0.25** | 없음 | 변화 없음 |
 | **EVADE** (Evade Window 활성) | **0** | 없음 | 변화 없음 |
 
@@ -143,10 +148,10 @@ Random KO roll / Just / Counter / Head-Body KO 경로 **없음**.
 
 | Attack | Startup | Active | Recovery | stamina_cost | knockdown_damage | 비고 |
 |---|---|---|---|---|---|---|
-| Left Straight | **0.10** | **0.08** | **0.18** | **4** | **8** | `.tres` 오버라이드 없음 → 스크립트 기본 |
-| Right Straight | 0.14 | 0.09 | 0.24 | 5 | 10 | `.tres` 명시 |
-| Left Hook | 0.18 | 0.10 | 0.30 | 7 | 13 | `.tres` 명시 |
-| Right Hook | 0.22 | 0.11 | 0.36 | 8 | 15 | `.tres` 명시 |
+| Left Straight | **0.10** | **0.08** | **0.11** | **4** | **8** | Recovery 단축. `.tres` 비어 있으면 스크립트 기본 |
+| Right Straight | 0.14 | 0.09 | **0.14** | 5 | 10 | `.tres` 명시 |
+| Left Hook | 0.18 | 0.10 | **0.18** | 7 | 13 | `.tres` 명시 |
+| Right Hook | 0.22 | 0.11 | **0.21** | 8 | 15 | `.tres` 명시 |
 
 ### 4.2 Opponent — `data/opponent_attacks/*.tres` + `OpponentAttackData`
 
@@ -180,8 +185,16 @@ Random KO roll / Just / Counter / Head-Body KO 경로 **없음**.
 ## 6. Opponent AI
 
 스크립트: `scripts/opponent_ai.gd`  
-난이도 리소스: `data/difficulty/{easy,normal,hard}.tres`  
-씬 기본: **`normal.tres`** (`game.tscn` → `OpponentAI.difficulty`).
+Opponent AI is locked to the former Normal baseline in `opponent_difficulty_settings.gd`. Easy/Hard resources are removed. Reflex and Pressure Fighter change timing only while those traits are active (`effective = base × modifier`).
+
+| Field | Baseline |
+|---|---|
+| reaction_delay | 0.16 |
+| mistake_chance | 0.20 |
+| aggression | 0.62 |
+| attack_interval | 0.10–0.30 |
+| follow_up_chance | 0.60 |
+| follow_up_delay | 0.05–0.12 |
 
 ### 정책
 
@@ -191,22 +204,16 @@ Random KO roll / Just / Counter / Head-Body KO 경로 **없음**.
   - Guard → `set_guard_held(true)` (hold)  
   - `"NONE"` → 반응하지 않음 (실수·비선택). **전용 defense state가 아님**.
 - `OpponentAttackState.attack_cooldown` 기본 **0.0**.
-- Offense pacing: Attack → Startup/Active/Recovery → `attack_interval` → 다음 결정.
-- **Follow-up**: Recovery 후 반대손 Straight 시도 (`follow_up_chance` / delay).
+- Offense pacing: Recovery가 끝나면 다음 판단을 바로 한다. 공격을 하지 않기로 한 경우에만 `attack_interval` 0.10–0.30을 쉰다.
+- **Combo**: 첫 펀치에서 단발 40% / 2타 40% / 3타 20%. 후속타마다 반대손 70% / 같은 손 30%를 다시 고른다. 같은 손은 Recovery가 끝나고 시작 간격 0.45초가 지나야 한다. 아직 불가능하면 반대손으로 바꾸지 않고 기다리거나 콤보를 끝낸다. 각 후속타는 새 attack token이며 스태미나를 따로 쓴다.
+- Block 70% / Evade 90%는 다음 공격 판단 한 번에서만 공격 가능성을 올린다. 그 우선 시간은 Block 0.20초, Evade 0.35초이고, 방금 들어간 가드나 슬립이 끝나기 전에는 줄지 않는다. 이미 Active인 플레이어 펀치는 이 시간보다 방어가 먼저다. 피해나 속도는 변하지 않는다.
 - `reaction_delay`: 플레이어 공격 Startup 이후 방어 반응 지연.
 - `mistake_chance` / `aggression` / `low_stamina_threshold` + `low_stamina_wait_chance` 유지.
 - **`counter_chance` 필드 없음** (삭제됨). `hook_weight`는 리소스에 남아 있으나 AI가 Hook을 고르지 않음.
 
-### Difficulty 실효값 (Normal = 스크립트 기본 + `aggression=0.62`만 오버라이드)
+Easy / Hard 난이도 리소스는 제거되었다. 위 baseline이 유일한 AI 기본값이다.
 
-| | Easy (`.tres`) | Normal (대부분 스크립트 기본) | Hard (`.tres`) |
-|---|---|---|---|
-| reaction_delay | 0.50 | 0.28 | 0.14 |
-| attack_interval | 0.35–0.70 | 0.10–0.30 | 0.03–0.15 |
-| follow_up_chance | 0.25 | 0.60 | 0.80 |
-| follow_up_delay | 0.12–0.25 | 0.05–0.12 | 0.02–0.08 |
-| aggression | 0.35 | **0.62** | 0.78 |
-| mistake_chance | 0.45 | 0.20 | 0.08 |
+Opponent는 플레이어가 공격하지 않아도 0.65–1.35초마다 선제 방어를 본다. 그 판단의 35%만 행동하고, 그중 75%는 High Guard(0.55–0.90초), 25%는 좌우 Slip이다. 판단은 자주 해도 매번 행동이 나오지는 않는다. 공격 중이나 가드 중에 타이머가 끝났다면 전체 간격을 다시 시작하지 않고, 행동이 끝나면 바로 다음 판단으로 돌아간다. 일반 HIT는 공격, 콤보, AI 판단을 멈추지 않는다. KD와 피격 연출은 그대로다. 클린 HIT 뒤의 압박 방어는 경직 종료를 기다리지 않고, 그 판정이 끝난 뒤 행동할 수 있을 때 예약된다. Opponent는 Recovery 뒤에 0.10~0.30초를 더 기다리지 않는다. 좌우 스트레이트는 Player와 Opponent가 같은 시간이다. 왼쪽 0.10/0.08/0.11, 오른쪽 0.14/0.09/0.14. Startup 또는 Active 중 맞는 클린 HIT만 받은 KD에 ×1.50이 더해진다. Recovery와 Idle은 일반 HIT다. 공격 pattern은 단발 30%, 빠른 2타 30%, 3타 20%, 0.15~0.30초를 둔 2타 20%다. 선제 방어 간격은 0.50~1.00초, 행동 확률 45%, 가드 65% / 슬립 35%다. 막기 70%, 피하기 90%는 다음 공격 판단 한 번만 공격 쪽으로 기울인다. 판단은 일부러 불완전하고, 전투 규칙만 같다. 클린 HIT마다 압박 방어 기회는 한 번이고, 그 예약은 일반 공격 결정보다 먼저다. 1타는 방어 85% / 반응 0.06초, 2타는 95% / 0.03초, 3타부터는 100% / 0.01초다. 이 압박 방어는 가드 45%, 슬립 55%다. 100%는 같은 압박에서 3타 이상을 이미 맞은 다음 기회에만 적용된다. 플레이어 스태미나는 방어 확률이 아니라 반응 시간만 바꾼다. 100%는 ×1.00, 75%는 ×0.90, 50%는 ×0.75, 25%는 ×0.55, 0%는 ×0.40이고 사이는 선형이다. 최종 반응은 base × stamina × trait이며 최소 0.01초다. 플레이어 공격 동작 시간은 느려지지 않는다. 이미 예약된 방어는 플레이어 Active 직전에 따라잡는다. 압박 가드 유지는 0.45초다. Reflex는 이 반응 시간만 절반으로 줄인다.
 
 ---
 
@@ -214,7 +221,7 @@ Random KO roll / Just / Counter / Head-Body KO 경로 **없음**.
 
 - `KnockdownManager`: Fighting → Player/Opponent Down → Count → Recover 또는 Final KO.
 - Recovery는 **다운 시 1회 roll** (`RecoveryChanceSettings`), 카운트마다 재roll 하지 않음.
-- 성공 기립: **KD = 50** (`recovery_knockdown_meter`), Stamina **+15** (`recovery_stamina_amount`).
+- 성공 기립: **KD = max × 0.50** (300 기준 150), Stamina **+15**.
 - Count 중 KD Meter 변화 없음. Final KO 후 Round Break KD 회복 적용 안 함.
 - Round timer는 knockdown 중 pause (`RoundManager` ↔ `KnockdownManager`).
 
@@ -223,7 +230,17 @@ Recovery 리소스: `data/ko/player_recovery_chance.tres`, `opponent_recovery_ch
 
 ---
 
-## 8. Round / Scoring / Decision
+## 8. Match / Round
+
+A match is best of 3, first to 2. Each round lasts 60 seconds and ends by Final KO or a decision. A 2–0 score skips round 3. Every round has one winner: a scoring draw uses a fixed tie-break (knockdowns, KD damage, landed punches, evades + blocks, thrown punches, then the round number). Judge 10-point cards stay separate from the match score. Final KO awards that round only; the result scene opens when a fighter reaches 2 wins.
+
+Round start fully resets stamina, KD, exhaustion, actions, guard, evade, slip, hit stun, and pending AI defense. Only the win counters persist. The old break heal (`+25` stamina, `−15` KD) is not applied.
+
+KD meter maximum is **300**. Standing up sets the meter to 50% of that maximum (150). Stand-up stamina recovery stays **+15**.
+
+Every new round resets gameplay and visuals together. OpponentVisual must not keep a Knockdown, Down, or Final KO pose into the next round. When the new round is fighting, the AI state and the sprite have to match. A callback left over from the previous round must not put the down pose back.
+
+Each round, Player and Opponent each draw exactly one Fighter Trait. They may draw the same trait. Effects are applied live and never written back onto base values. The trait card shows both sides before the clock starts.
 
 | 항목 | 기본 |
 |---|---|
@@ -299,14 +316,14 @@ Screen shake / POV / parallax가 HUD·KD·Stamina 바를 흔들지 않게 하기
 ### Continuous Evade POV (`PlayerVisual` + `PlayerEvade`)
 
 - 별도 Evade 스프라이트 없음. Player **X translation = 0** (1536×864 full-frame ↔ 1152×648 exact fill → 어떤 X 이동도 clipping).
-- Player Y만 소량 SmoothDamp: LEFT/RIGHT `(0,+4)` / DOWN `(0,+10)`.
+- Player Y만 소량 SmoothDamp: LEFT/RIGHT/DOWN `(0,+10)`.
 - 회피감은 World/Opponent relative motion이 담당.
 
 ### World Parallax (`CombatVisualRoot` → BG + Opponent)
 
 - Shared head-motion: `_head_lateral` / `_head_down` SmoothDamp (velocity continuity, no segment restart).
 - LEFT → World **+X** / RIGHT → World **-X** / DOWN → World **-Y**.
-- Horizontal: Crowd **20** / Ring **45** / Opponent **90**.
+- Horizontal: Crowd **30** / Ring **65** / Opponent **130**.
 - Down Y: Crowd **10** / Ring **22** / Opponent **40**.
 - LEFT↔RIGHT weave: position-based `(1-|lat|)^2 * blend` dip (−Y). Opp **45** / Ring **22** / Crowd **10**.
 - DOWN successful pass-by: **`(0, -40)`** (40px upward). LEFT/RIGHT pass-by X **±130**. Stack ≤ ~80.
@@ -317,8 +334,8 @@ Screen shake / POV / parallax가 HUD·KD·Stamina 바를 흔들지 않게 하기
 
 - Parallax amplitude는 줄이지 않는다. Crowd/Ring만 viewport + motion bleed를 uniform scale로 덮는다.
 - Bleed (한쪽, CombatVisualRoot가 계산 후 safety **4px** 추가):
-  - Crowd H **20+4**, V **10 + weave 10 + 4**
-  - Ring H **45+4**, V **22 + weave 22 + 4**
+  - Crowd H **30+4**, V **10 + weave 10 + 4**
+  - Ring H **65+4**, V **22 + weave 22 + 4**
 - Scale은 기존 cover의 **시각 중심** 기준. Bottom anchor를 추가 높이의 절반만큼 내려 framing center를 유지한다.
 - Player scale **0.75**와 Opponent contain scale은 overscan 대상이 아니다.
 
@@ -360,8 +377,10 @@ Screen shake / POV / parallax가 HUD·KD·Stamina 바를 흔들지 않게 하기
 - Player: `base + breathing + action + pov(evade) + opponent_down_idle + knockdown + knockdown_impact`
 - Opponent: `base + breathing + action + parallax + knockdown + knockdown_impact`
 - Root: `base + shake`
-- Player POV / World weaving: **SmoothDamp** (`_pov_velocity`, `_head_lateral` / `_head_down` velocity continuity).
-- Opponent Down Nstance lowering: frame **`move_toward`**.
+- Player POV / World weaving: **SmoothDamp**.
+- Opponent Down Nstance lowering: **`move_toward`**.
+- **FatigueVignette** (CanvasLayer, HUD보다 아래): Player Stamina만. `intensity = pow(1 - ratio, 2)`. 가장자리만 어둡고 중앙은 비움.
+- **Exhausted Ghost**: Player Stamina 0에서만. Main sprite는 항상 불투명. Ghost 2개는 같은 texture/anchor를 따르고 작은 drift만 더한다. Stamina 25에서 fade out. Opponent Stamina는 이 이펙트를 켜지 않는다.
 - Tweens: `_breathing_tween`, `_shake_tween`, `_knockdown_impact_tween`
 
 ### Opponent Down Nstance Lowering (`PlayerVisual`)
@@ -401,7 +420,7 @@ Screen shake / POV / parallax가 HUD·KD·Stamina 바를 흔들지 않게 하기
 | `player_action_buffer.gd` | Attack recovery cancel (attack_to_attack/evade/guard) |
 | `player_offense_resolver.gd` / `player_defense_resolver.gd` | HIT/BLOCK/EVADE + KD |
 | `hit_resolve_coordinator.gd` | 동시 Active 조율 |
-| `hit_stun.gd` | 0.35s 경직 |
+| `hit_stun.gd` | 일반 HIT는 경직이 없다 |
 | `knockdown_meter.gd` | 0–100 미터 |
 | `knockdown_manager.gd` | Down / Count / Recovery / Final KO |
 | `finisher_impact_freeze.gd` | 결정타 Impact Freeze presentation (Count 앞단) |
@@ -473,7 +492,7 @@ godot --headless --path . --quit-after 2
 |---|---|
 | `kd_meter_smoke_test.gd` | KD Meter, 공격 KD 값, legacy 시스템 부재, HUD |
 | `combat_simplify_smoke_test.gd` | Duck/Target/Just/Counter 제거, Straight-only AI |
-| `balance_smoke_test.gd` | Hit Stun 0.35, AI interval/follow-up, coordinator |
+| `balance_smoke_test.gd` | AI interval/follow-up, coordinator |
 | `ai_pacing_smoke_test.gd` | cooldown 0, follow-up, difficulty |
 | `hit_stun_smoke_test.gd` | HitStun 컴포넌트·씬 배선 |
 | `visual_motion_smoke_test.gd` | Breathing/Continuous Evade POV/Parallax/Shake/Recovery |
@@ -487,7 +506,7 @@ godot --headless --path . --quit-after 2
 
 ## 16. 개발 규칙
 
-1. **정상 동작 시스템을 이유 없이 재설계하지 말 것** (특히 Stamina↔KD 분리, Straight-only AI, Hit Stun 0.35).
+1. **정상 동작 시스템을 이유 없이 재설계하지 말 것** (특히 Stamina↔KD 분리, Straight-only AI). 일반 HIT는 행동을 멈추지 않는다.
 2. **Combat timing과 Visual timing을 분리**할 것 (Opponent Recovery ≠ punch PNG hold).
 3. **Stamina와 KD Meter는 독립** — 피격이 Stamina를 깎거나 KO 확률을 만들지 않음.
 4. Player/Opponent **대칭 규칙** 유지 (미터·가드 배율·브레이크 회복).
@@ -516,7 +535,7 @@ godot --headless --path . --quit-after 2
 2. KD HUD, CombatStats/RoundScorer 정리, Straight-only AI 유지.
 3. Visual Motion: Idle Breathing, Continuous Evade POV, Parallax, Hit Shake, Knockdown impact shake, Opponent Down Nstance lowering.
 4. Action Buffer + Attack Recovery Cancel (`attack_to_evade` 0.35).
-5. **Continuous Evade** (A/S/D Movement + 0.18 Window + stamina 4 + retrigger 0.12).
+5. **Continuous Evade** (A/S/D Movement + 0.18 Window + retrigger 0.12, Stamina 소모 없음).
 6. **Knockdown Finisher Impact Freeze** (`FinisherImpactFreeze`: real **2.0s** freeze + screen effect → 이후 Count). `Engine.time_scale` 미사용.
 
 ### Next Work / TODO (미구현 — 완료와 섞지 말 것)

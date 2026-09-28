@@ -8,7 +8,7 @@ signal stamina_changed(current_stamina: float, max_stamina: float)
 @export_range(0.0, 1000.0, 0.1, "or_greater") var initial_max_stamina := 100.0
 
 @export_group("Regeneration")
-@export_range(0.0, 10.0, 0.05, "or_greater") var regeneration_delay := 1.5
+@export_range(0.0, 10.0, 0.05, "or_greater") var regeneration_delay := 0.65
 @export_range(0.0, 1000.0, 0.1, "or_greater") var regeneration_per_second := 8.0
 
 var current_stamina := 0.0
@@ -35,7 +35,7 @@ func _process(delta: float) -> void:
 		and current_stamina < max_stamina
 	):
 		current_stamina = minf(
-			current_stamina + regeneration_per_second * delta,
+			current_stamina + regeneration_per_second * _regen_scale() * delta,
 			max_stamina
 		)
 		stamina_changed.emit(current_stamina, max_stamina)
@@ -67,4 +67,18 @@ func spend_for_attack(stamina_cost: float) -> bool:
 	current_stamina -= stamina_cost
 	stamina_changed.emit(current_stamina, max_stamina)
 	return true
+
+
+func reset_to_max() -> void:
+	current_stamina = max_stamina
+	stamina_changed.emit(current_stamina, max_stamina)
+
+
+func _regen_scale() -> float:
+	if not is_inside_tree():
+		return 1.0
+	var manager = preload("res://scripts/trait_manager.gd").find(get_tree())
+	if manager == null:
+		return 1.0
+	return preload("res://scripts/trait_math.gd").regen_multiplier(manager.traits_for_player(false))
 

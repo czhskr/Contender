@@ -34,6 +34,7 @@ func _run() -> void:
 	_check_low_stamina_movement_only(failures)
 	_check_attack_gates(failures)
 	_check_resolver_evade(failures)
+	await _check_guard_stays_with_evade(failures)
 	_check_passby_down(failures)
 	_check_opponent_down_idle(failures)
 	_check_no_legacy_slip_api(failures)
@@ -54,14 +55,16 @@ func _check_defaults(failures: Array[String]) -> void:
 	var evade := PlayerEvadeType.new()
 	if not is_equal_approx(evade.evade_window, 0.18):
 		failures.append("evade_window expected 0.18")
-	if not is_equal_approx(evade.evade_stamina_cost, 4.0):
-		failures.append("evade_stamina_cost expected 4")
+	if not is_equal_approx(evade.evade_window, 0.18):
+		failures.append("evade_window expected 0.18")
+	if evade.get("evade_stamina_cost") != null:
+		failures.append("Evade must not spend stamina")
 	if not is_equal_approx(evade.evade_retrigger_interval, 0.12):
 		failures.append("evade_retrigger_interval expected 0.12")
-	if evade.left_offset != Vector2(0.0, 4.0):
-		failures.append("LEFT offset expected (0, 4) — no Player X")
-	if evade.right_offset != Vector2(0.0, 4.0):
-		failures.append("RIGHT offset expected (0, 4) — no Player X")
+	if evade.left_offset != Vector2(0.0, 10.0):
+		failures.append("LEFT offset expected (0, 10) — same drop as DOWN, no Player X")
+	if evade.right_offset != Vector2(0.0, 10.0):
+		failures.append("RIGHT offset expected (0, 10) — same drop as DOWN, no Player X")
 	if evade.down_offset != Vector2(0.0, 10.0):
 		failures.append("DOWN offset expected (0, 10)")
 	if not is_equal_approx(evade.left_offset.x, 0.0) or not is_equal_approx(evade.right_offset.x, 0.0):
@@ -70,12 +73,12 @@ func _check_defaults(failures: Array[String]) -> void:
 	if not is_equal_approx(buffer.attack_to_evade, 0.35):
 		failures.append("attack_to_evade expected 0.35")
 	var root := CombatVisualRootType.new()
-	if not is_equal_approx(root.parallax_crowd_x, 20.0):
-		failures.append("parallax_crowd_x != 20")
-	if not is_equal_approx(root.parallax_ring_x, 45.0):
-		failures.append("parallax_ring_x != 45")
-	if not is_equal_approx(root.parallax_opponent_x, 90.0):
-		failures.append("parallax_opponent_x != 90")
+	if not is_equal_approx(root.parallax_crowd_x, 30.0):
+		failures.append("parallax_crowd_x != 30")
+	if not is_equal_approx(root.parallax_ring_x, 65.0):
+		failures.append("parallax_ring_x != 65")
+	if not is_equal_approx(root.parallax_opponent_x, 130.0):
+		failures.append("parallax_opponent_x != 130")
 	if not is_equal_approx(root.parallax_crowd_down_y, 10.0):
 		failures.append("parallax_crowd_down_y != 10")
 	if not is_equal_approx(root.parallax_ring_down_y, 22.0):
@@ -113,10 +116,10 @@ func _check_input_map(failures: Array[String]) -> void:
 func _check_movement_targets(failures: Array[String]) -> void:
 	var evade := PlayerEvadeType.new()
 	evade.set_movement_direction(PlayerEvadeType.Direction.LEFT)
-	if evade.movement_target != Vector2(0.0, 4.0):
+	if evade.movement_target != Vector2(0.0, 10.0):
 		failures.append("LEFT movement target wrong")
 	evade.set_movement_direction(PlayerEvadeType.Direction.RIGHT)
-	if evade.movement_target != Vector2(0.0, 4.0):
+	if evade.movement_target != Vector2(0.0, 10.0):
 		failures.append("A→D should retarget immediately without recovery")
 	evade.set_movement_direction(PlayerEvadeType.Direction.DOWN)
 	if evade.movement_target != Vector2(0.0, 10.0):
@@ -145,28 +148,33 @@ func _check_visual_smoothing(failures: Array[String]) -> void:
 		player._process(0.02)
 	if absf(player.pov_offset.x) > 0.01:
 		failures.append("Player POV X must stay 0 (got %.2f)" % player.pov_offset.x)
-	if not is_equal_approx(player.pov_offset.y, 4.0):
-		failures.append("POV Y did not reach LEFT/RIGHT small Y (got %.2f)" % player.pov_offset.y)
-	## World weave: shared head lateral crosses center with dip
+	if not is_equal_approx(player.pov_offset.y, 10.0):
+		failures.append("POV Y did not reach DOWN height on LEFT (got %.2f)" % player.pov_offset.y)
 	var world := CombatVisualRootType.new()
 	world.head_smooth_time = 0.08
+	world._set_parallax_targets_for_direction(PlayerEvadeType.Direction.LEFT)
+	var left_y := world._opponent_parallax.y
+	world._set_parallax_targets_for_direction(PlayerEvadeType.Direction.DOWN)
+	var down_y := world._opponent_parallax.y
+	if not is_equal_approx(left_y, down_y):
+		failures.append("Settled LEFT opponent Y %.2f != DOWN %.2f" % [left_y, down_y])
+	if left_y > -1.0:
+		failures.append("Settled LEFT should share the downward world shift")
+	## Retarget RIGHT without zeroing velocity — height stays at the DOWN line.
 	world._on_evade_movement_target_changed(Vector2.ZERO, PlayerEvadeType.Direction.LEFT)
 	for _i in 20:
 		world._process(0.02)
-	if world._head_lateral < 0.9:
-		failures.append("Head lateral should approach LEFT (+1)")
-	## Retarget RIGHT without zeroing velocity — continuity
 	var vel_before := world._head_lateral_vel
 	world._on_evade_movement_target_changed(Vector2.ZERO, PlayerEvadeType.Direction.RIGHT)
-	## Midway toward RIGHT: lateral near 0 → weave Y dip on opponent
-	var saw_dip := false
+	var too_deep := false
 	for _j in 30:
 		world._process(0.02)
-		if absf(world._head_lateral) < 0.35 and world._opponent_parallax.y < -5.0:
-			saw_dip = true
-			break
-	if not saw_dip:
-		failures.append("A→D should produce center weave dip on Opponent Y")
+		if world._opponent_parallax.y < down_y - 0.5:
+			too_deep = true
+	if too_deep:
+		failures.append("A→D went deeper than settled DOWN")
+	if not is_equal_approx(world._head_down_target, 1.0):
+		failures.append("RIGHT should keep the DOWN height target")
 	## Velocity was not forcibly zeroed on retarget (may still be non-zero immediately after)
 	if is_equal_approx(vel_before, 0.0) and is_equal_approx(world._head_lateral_vel, 0.0):
 		pass ## ok if already settled
@@ -196,8 +204,8 @@ func _check_window_stamina_retrigger(failures: Array[String]) -> void:
 	var before := stamina.current_stamina
 	if not evade.try_begin_window(PlayerEvadeType.Direction.LEFT):
 		failures.append("First evade window should start")
-	elif not is_equal_approx(before - stamina.current_stamina, 4.0):
-		failures.append("Evade should spend exactly 4 stamina")
+	elif not is_equal_approx(stamina.current_stamina, before):
+		failures.append("Evade must not spend stamina")
 	if not evade.is_window_active():
 		failures.append("Window should be active after trigger")
 
@@ -213,8 +221,8 @@ func _check_window_stamina_retrigger(failures: Array[String]) -> void:
 	before = stamina.current_stamina
 	if not evade.try_begin_window(PlayerEvadeType.Direction.DOWN):
 		failures.append("After retrigger, new window should start")
-	elif not is_equal_approx(before - stamina.current_stamina, 4.0):
-		failures.append("Second evade should spend 4")
+	elif not is_equal_approx(stamina.current_stamina, before):
+		failures.append("Second evade must not spend stamina")
 
 	## Window expiry
 	evade._window_remaining = 0.0
@@ -234,11 +242,11 @@ func _check_low_stamina_movement_only(failures: Array[String]) -> void:
 	var evade := PlayerEvadeType.new()
 	evade.player_stamina = stamina
 	evade.set_movement_direction(PlayerEvadeType.Direction.RIGHT)
-	if evade.movement_target != Vector2(0.0, 4.0):
+	if evade.movement_target != Vector2(0.0, 10.0):
 		failures.append("Low stamina must still allow movement")
 	var before := stamina.current_stamina
-	if evade.try_begin_window(PlayerEvadeType.Direction.RIGHT):
-		failures.append("Low stamina must not open evade window")
+	if not evade.try_begin_window(PlayerEvadeType.Direction.RIGHT):
+		failures.append("Zero-cost evade window must open at low stamina")
 	if not is_equal_approx(stamina.current_stamina, before):
 		failures.append("Low stamina path must not spend")
 	stamina.queue_free()
@@ -346,6 +354,80 @@ func _check_resolver_evade(failures: Array[String]) -> void:
 	evade.queue_free()
 	meter.queue_free()
 	defense.queue_free()
+
+
+func _check_guard_stays_with_evade(failures: Array[String]) -> void:
+	var attack := AttackStateType.new()
+	attack.print_action_speed = false
+	var action := ActionStateType.new()
+	action.attack_state = attack
+	action.print_state_changes = false
+	action._ready()
+	var evade := PlayerEvadeType.new()
+	var proto := preload("res://scripts/combat_prototype.gd").new()
+	proto.attack_state = attack
+	proto.player_state = action
+	proto.player_evade = evade
+	proto.combat_input = CombatInputType.new()
+	proto.last_input_value = Label.new()
+	action.set_guard_held(true)
+	if not proto._try_begin_evade_window(PlayerEvadeType.Direction.LEFT):
+		failures.append("Evade window should open while guarding")
+	if not action.is_guarding():
+		failures.append("Starting evade must not release High Guard")
+	if not evade.is_window_active():
+		failures.append("Guard + Evade should keep the evade window")
+	action.set_guard_held(false)
+	if action.is_guarding() or not evade.is_window_active():
+		failures.append("Releasing Guard must leave the Evade window running")
+	var meter := KnockdownMeterType.new()
+	var defense := DefenseResolverType.new()
+	defense.player_action_state = action
+	defense.player_evade = evade
+	defense.player_knockdown_meter = meter
+	defense.print_hit_results = false
+	action.set_guard_held(true)
+	var opp := OpponentAttackDataType.new()
+	opp.knockdown_damage = 10.0
+	defense.resolve_attack(opp)
+	if meter.current_meter > 0.0:
+		failures.append("Active evade window must beat Guard and resolve as EVADE")
+	evade.end_window()
+	meter.current_meter = 0.0
+	defense.resolve_attack(opp)
+	if not is_equal_approx(meter.current_meter, 2.5):
+		failures.append("Expired window with Guard held should BLOCK")
+	action.set_guard_held(false)
+	var before := meter.current_meter
+	defense.resolve_attack(opp)
+	if meter.current_meter <= before:
+		failures.append("No guard and no window should HIT")
+	var visual := PlayerVisualType.new()
+	visual.action_state = action
+	root.add_child(visual)
+	await process_frame
+	action.set_guard_held(true)
+	var guard_path := ""
+	if visual._sprite != null and visual._sprite.texture != null:
+		guard_path = visual._sprite.texture.resource_path
+	if not guard_path.ends_with("p.highguard.png"):
+		failures.append("Guard texture should be p.highguard.png")
+	evade.set_movement_direction(PlayerEvadeType.Direction.LEFT)
+	action.set_guard_held(false)
+	var idle_path := ""
+	if visual._sprite != null and visual._sprite.texture != null:
+		idle_path = visual._sprite.texture.resource_path
+	if not idle_path.ends_with("p.Nstance.png"):
+		failures.append("Releasing Guard during Evade should show p.Nstance.png")
+	if evade.movement_direction != PlayerEvadeType.Direction.LEFT:
+		failures.append("Releasing Guard must not cancel Evade movement")
+	visual.queue_free()
+	meter.free()
+	defense.free()
+	proto.free()
+	attack.free()
+	action.free()
+	evade.free()
 
 
 func _check_passby_down(failures: Array[String]) -> void:

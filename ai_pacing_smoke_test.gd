@@ -36,33 +36,17 @@ func _check_attack_cooldown_zero(failures: Array[String]) -> void:
 
 
 func _check_difficulty(failures: Array[String]) -> void:
-	var expected := {
-		"res://data/difficulty/easy.tres": {
-			"min": 0.35, "max": 0.7, "fu": 0.25, "fu_min": 0.12, "fu_max": 0.25
-		},
-		"res://data/difficulty/normal.tres": {
-			"min": 0.1, "max": 0.3, "fu": 0.6, "fu_min": 0.05, "fu_max": 0.12
-		},
-		"res://data/difficulty/hard.tres": {
-			"min": 0.03, "max": 0.15, "fu": 0.8, "fu_min": 0.02, "fu_max": 0.08
-		},
-	}
-	for path in expected.keys():
-		var settings = load(path)
-		if settings == null:
-			failures.append("Missing %s" % path)
-			continue
-		var e: Dictionary = expected[path]
-		if not is_equal_approx(settings.attack_interval_min, e["min"]):
-			failures.append("%s interval_min" % path)
-		if not is_equal_approx(settings.attack_interval_max, e["max"]):
-			failures.append("%s interval_max" % path)
-		if not is_equal_approx(settings.follow_up_chance, e["fu"]):
-			failures.append("%s follow_up_chance" % path)
-		if not is_equal_approx(settings.follow_up_delay_min, e["fu_min"]):
-			failures.append("%s follow_up_delay_min" % path)
-		if not is_equal_approx(settings.follow_up_delay_max, e["fu_max"]):
-			failures.append("%s follow_up_delay_max" % path)
+	var settings = preload("res://scripts/opponent_difficulty_settings.gd").new()
+	if not is_equal_approx(settings.attack_interval_min, 0.1):
+		failures.append("baseline interval_min")
+	if not is_equal_approx(settings.attack_interval_max, 0.3):
+		failures.append("baseline interval_max")
+	if not is_equal_approx(settings.follow_up_chance, 0.6):
+		failures.append("baseline follow_up_chance")
+	if not is_equal_approx(settings.follow_up_delay_min, 0.05):
+		failures.append("baseline follow_up_delay_min")
+	if not is_equal_approx(settings.follow_up_delay_max, 0.12):
+		failures.append("baseline follow_up_delay_max")
 
 
 func _check_follow_up_opposite(failures: Array[String]) -> void:

@@ -19,8 +19,8 @@ const TextureResolver = preload("res://scripts/visual_texture_resolver.gd")
 @export_group("Parallax Overscan")
 ## One-sided bleed in pixels. Defaults match max Crowd/Ring motion plus a small safety.
 ## CombatVisualRoot.set_motion_bleed overwrites these from the live parallax exports.
-@export var crowd_bleed := Vector2(24, 24)
-@export var ring_bleed := Vector2(49, 48)
+@export var crowd_bleed := Vector2(34, 24)
+@export var ring_bleed := Vector2(69, 48)
 
 @export_group("Parallax Offsets")
 ## Additive offsets driven by CombatVisualRoot during Player Slip.

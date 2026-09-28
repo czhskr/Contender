@@ -35,6 +35,7 @@ func _run() -> void:
 	_check_attack_to_guard_threshold(failures)
 	_check_opponent_recovery(failures)
 	await _check_background_overscan(failures)
+	await _check_opponent_down_coverage(failures)
 	_check_no_player_health(failures)
 	_check_scene(failures)
 
@@ -497,6 +498,62 @@ func _check_background_overscan(failures: Array[String]) -> void:
 		failures.append("Player scale must stay 0.75")
 	player.free()
 	bg.queue_free()
+	await process_frame
+
+
+func _check_opponent_down_coverage(failures: Array[String]) -> void:
+	var opponent := OpponentVisualType.new()
+	root.add_child(opponent)
+	await process_frame
+	if opponent.get_node_or_null("Anchor/BottomBleed") != null:
+		failures.append("BottomBleed must be removed")
+	var scale := opponent.opponent_display_scale
+	if not is_equal_approx(scale, 648.0 / 1024.0):
+		failures.append("Opponent contain scale changed")
+	var player := PlayerVisualType.new()
+	if not is_equal_approx(player.player_display_scale, 0.75):
+		failures.append("Player scale must stay 0.75")
+	player.free()
+
+	var root_v := CombatVisualRootType.new()
+	root_v.opponent_visual = opponent
+	root_v.viewport_size = Vector2(1152, 648)
+	root_v._apply_opponent_down_framing()
+	var lift := root_v.max_opponent_upward_lift()
+	if not is_equal_approx(lift, 85.0):
+		failures.append("Max upward lift expected 85, got %.2f" % lift)
+	if not is_equal_approx(root_v.parallax_opponent_x, 90.0):
+		failures.append("Opponent horizontal parallax changed")
+	if not is_equal_approx(root_v.parallax_opponent_down_y, 40.0):
+		failures.append("Opponent DOWN parallax changed")
+	if not is_equal_approx(root_v.evade_down_passby_offset_y, 40.0):
+		failures.append("DOWN pass-by magnitude changed")
+	var canvas_h := 1024.0 * scale
+	var center_top := opponent.asset_base_position.y
+	var center_bottom := center_top + canvas_h
+	var max_bottom := center_bottom - lift
+	if absf(max_bottom - 648.0) > 2.0:
+		failures.append("MAX DOWN canvas bottom %.2f is not viewport 648" % max_bottom)
+	if center_top < 80.0:
+		failures.append("CENTER framing did not shift down with the max lift")
+
+	var opaque_left := 437.0 * scale
+	var opaque_right := 1106.0 * scale
+	var left_edge := opponent.asset_base_position.x - 90.0 + opaque_left
+	var right_edge := opponent.asset_base_position.x + 90.0 + opaque_right
+	if left_edge < -0.5 or right_edge > 1152.5:
+		failures.append("Horizontal ±90 clips idle opaque bounds")
+
+	opponent._stop_breathing()
+	opponent.set_parallax_offset(Vector2(0.0, -40.0))
+	opponent.apply_evade_passby_offset(Vector2(0.0, -40.0))
+	opponent._knockdown_offset = Vector2(0.0, 70.0)
+	opponent._apply_composed_transform()
+	var expected_y := opponent.asset_base_position.y - 40.0 - 40.0 + 70.0
+	if not is_equal_approx(opponent._anchor.position.y, expected_y):
+		failures.append("Knockdown must still add to evade offsets")
+	root_v.free()
+	opponent.queue_free()
 	await process_frame
 
 

@@ -311,6 +311,7 @@ Screen shake / POV / parallax가 HUD·KD·Stamina 바를 흔들지 않게 하기
 - LEFT↔RIGHT weave: position-based `(1-|lat|)^2 * blend` dip (−Y). Opp **45** / Ring **22** / Crowd **10**.
 - DOWN successful pass-by: **`(0, -40)`** (40px upward). LEFT/RIGHT pass-by X **±130**. Stack ≤ ~80.
 - Opponent는 `parallax_offset` additive.
+- Opponent는 `parallax_offset` additive. `asset_base_position.y`는 `max(DOWN 40, weave 45) + pass-by 40` = **85**라서, 최대 DOWN에서 캔버스 하단이 viewport 바닥(648)에 맞는다. CENTER에서는 그 85px만큼 아래에 있다. Scale은 contain **0.6328125** 유지. BottomBleed 없음.
 
 ### Background Overscan (`BackgroundVisual`)
 

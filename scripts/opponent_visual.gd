@@ -33,8 +33,9 @@ enum Priority {
 @export_group("Display")
 ## Shared by every Opponent pose. Contain fit (height-limited): 648/1024 ≈ 0.6328.
 @export var opponent_display_scale := DisplayLayout.DEFAULT_OPPONENT_DISPLAY_SCALE
-## Top-left of scaled canvas. Default = bottom-aligned + horizontal center.
-@export var asset_base_position := Vector2(90, 0)
+## Top-left of scaled canvas. X stays centered. Y is set so max DOWN lift
+## puts the canvas bottom on the viewport bottom (CombatVisualRoot).
+@export var asset_base_position := Vector2(90, 85)
 
 @export_group("Textures")
 @export var texture_idle := "res://assets/opponent/o.Nstance.png"
@@ -392,6 +393,10 @@ func _show_pose(state_name: String, texture_path: String) -> void:
 		push_warning("OpponentVisual missing texture: %s" % texture_path)
 	_apply_composed_transform()
 	_set_visual_state(state_name)
+
+
+func apply_composed_transform() -> void:
+	_apply_composed_transform()
 
 
 func _apply_composed_transform() -> void:

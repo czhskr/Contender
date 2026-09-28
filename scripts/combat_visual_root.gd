@@ -9,6 +9,7 @@ const OffenseResolverType = preload("res://scripts/player_offense_resolver.gd")
 const DefenseResolverType = preload("res://scripts/player_defense_resolver.gd")
 const KnockdownManagerType = preload("res://scripts/knockdown_manager.gd")
 const PlayerEvadeType = preload("res://scripts/player_evade.gd")
+const DisplayLayout = preload("res://scripts/visual_display_layout.gd")
 
 @export var viewport_size := Vector2(1152, 648)
 
@@ -95,6 +96,7 @@ func _ready() -> void:
 	base_position = position
 	_resolve_wired_nodes()
 	_apply_background_overscan()
+	_apply_opponent_down_framing()
 	_apply_composed_position()
 	set_process(true)
 
@@ -286,6 +288,26 @@ func clear_continuous_evade_presentation() -> void:
 	_reset_world_parallax_immediate()
 	if player_visual != null and player_visual.has_method("reset_evade_visual_immediate"):
 		player_visual.reset_evade_visual_immediate()
+
+
+## Max upward shift of the opponent canvas (negative Y).
+## Settled DOWN is parallax 40 + pass-by 40 = 80.
+## A LEFT/RIGHT→DOWN transition can still hold full weave (45) when pass-by (-40) starts,
+## so the peak is max(DOWN, weave) + pass-by.
+func max_opponent_upward_lift() -> float:
+	return maxf(parallax_opponent_down_y, weave_depth_opponent) + evade_down_passby_offset_y
+
+
+func _apply_opponent_down_framing() -> void:
+	if opponent_visual == null:
+		return
+	var lift := max_opponent_upward_lift()
+	var canvas_h := DisplayLayout.OPPONENT_SOURCE_CANVAS_SIZE.y * float(opponent_visual.opponent_display_scale)
+	## base_y + canvas_h - lift == viewport bottom.
+	var base_y := viewport_size.y - canvas_h + lift
+	opponent_visual.asset_base_position.y = base_y
+	if opponent_visual.has_method("apply_composed_transform"):
+		opponent_visual.apply_composed_transform()
 
 
 func _apply_background_overscan() -> void:

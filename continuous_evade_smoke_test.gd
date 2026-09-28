@@ -430,7 +430,6 @@ func _check_round_freeze_clears_evade(failures: Array[String]) -> void:
 		visual.add_child(player)
 		visual.add_child(opponent)
 		root.add_child(evade)
-		root.add_child(rounds)
 		await process_frame
 
 		evade.set_movement_direction(direction)

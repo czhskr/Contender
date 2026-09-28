@@ -52,7 +52,7 @@
 
 #### Continuous Evade (Player)
 
-- **Movement**: A/S/D hold → small POV target offset + World parallax. Recovery / post-lock **없음**. `move_toward` / weave curve smoothing.
+- **Movement**: A/S/D hold → small POV target offset + World parallax. Recovery / post-lock **없음**. Player POV와 World weaving은 **SmoothDamp**. Opponent Down Nstance lowering만 **`move_toward`**.
   - Player POV LEFT/RIGHT `(0, +4)` / DOWN `(0, +10)` / release → CENTER. **Player X = 0** (full-frame clipping 방지).
   - LEFT↔RIGHT: World shared head-motion SmoothDamp + position-based weave dip. Presentation only.
   - Horizontal World: Crowd **20** / Ring **45** / Opponent **90**.
@@ -309,7 +309,7 @@ Screen shake / POV / parallax가 HUD·KD·Stamina 바를 흔들지 않게 하기
 - Horizontal: Crowd **20** / Ring **45** / Opponent **90**.
 - Down Y: Crowd **10** / Ring **22** / Opponent **40**.
 - LEFT↔RIGHT weave: position-based `(1-|lat|)^2 * blend` dip (−Y). Opp **45** / Ring **22** / Crowd **10**.
-- DOWN successful pass-by Y: **40** (LEFT/RIGHT pass-by X **130** 유지). Stack ≤ ~80.
+- DOWN successful pass-by: **`(0, -40)`** (40px upward). LEFT/RIGHT pass-by X **±130**. Stack ≤ ~80.
 - Opponent는 `parallax_offset` additive.
 
 ### Hit Shake (`CombatVisualRoot`만)
@@ -341,13 +341,15 @@ Screen shake / POV / parallax가 HUD·KD·Stamina 바를 흔들지 않게 하기
 - Player: `base + breathing + action + pov(evade) + opponent_down_idle + knockdown + knockdown_impact`
 - Opponent: `base + breathing + action + parallax + knockdown + knockdown_impact`
 - Root: `base + shake`
-- Continuous evade / down-idle: frame `move_toward`. Tweens: `_breathing_tween`, `_shake_tween`, `_knockdown_impact_tween`
+- Player POV / World weaving: **SmoothDamp** (`_pov_velocity`, `_head_lateral` / `_head_down` velocity continuity).
+- Opponent Down Nstance lowering: frame **`move_toward`**.
+- Tweens: `_breathing_tween`, `_shake_tween`, `_knockdown_impact_tween`
 
 ### Opponent Down Nstance Lowering (`PlayerVisual`)
 
 - Opponent DOWN/COUNT 시 Player Nstance에 `opponent_down_idle_offset_y` **+90** (additive, Inspector).
 - Finisher Freeze 중에는 미적용. Freeze 종료 → Nstance → Opponent Down 이후 적용.
-- Opponent Recover → smooth return to 0. Player Down 시 강제 0. Final KO(상대)는 lowered 유지 가능.
+- Opponent Recover → `move_toward`로 0 복귀. Player Down 시 강제 0. Final KO(상대)는 lowered 유지 가능.
 - Guard gameplay와 무관 (presentation only).
 
 ### 아직 구현되지 않음 (완료라고 쓰지 말 것)

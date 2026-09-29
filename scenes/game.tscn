@@ -39,9 +39,17 @@
 [ext_resource type="Script" uid="uid://dnhfk683lb2tm" path="res://scripts/finisher_impact_freeze.gd" id="46_finisher"]
 [ext_resource type="Script" uid="uid://dvpmp425bahtt" path="res://scripts/finisher_impact_effect.gd" id="47_finisher_fx"]
 [ext_resource type="Script" uid="uid://bm11jv6csr826" path="res://scripts/player_evade.gd" id="48_player_evade"]
+[ext_resource type="Script" uid="uid://bqqnm6ju4w1nr" path="res://scripts/game_mode.gd" id="49_game_mode"]
+[ext_resource type="Script" uid="uid://bkb4pc6ifxb6y" path="res://scripts/combat_hud.gd" id="50_combat_hud"]
 
 [node name="CombatPrototype" type="Node" unique_id=824776855]
 script = ExtResource("1_prototype")
+
+[node name="GameMode" type="Node" parent="." unique_id=1514841934]
+script = ExtResource("49_game_mode")
+
+[node name="CombatHUD" type="CanvasLayer" parent="." unique_id=557916050]
+script = ExtResource("50_combat_hud")
 
 [node name="CombatVisualRoot" type="Node2D" parent="." unique_id=1635825880 node_paths=PackedStringArray("background_visual", "opponent_visual", "player_visual", "player_action_state", "player_evade", "offense_resolver", "defense_resolver", "knockdown_manager")]
 script = ExtResource("39_combat_visual_root")
@@ -221,6 +229,7 @@ round_manager = NodePath("../RoundManager")
 
 [node name="DebugHUD" type="CanvasLayer" parent="." unique_id=2120275065]
 layer = 2
+visible = false
 
 [node name="Panel" type="PanelContainer" parent="DebugHUD" unique_id=1498927952]
 offset_left = 32.0

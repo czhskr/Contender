@@ -62,14 +62,16 @@ var parallax_offset := Vector2.ZERO
 ## DOWN: shift opponent downward (no rotation). Uses o.hit.png.
 @export var knockdown_drop_distance := 70.0
 @export var print_visual_trace := false
-@export var hit_hold_seconds := 0.16
+@export var print_opponent_transform := false
+@export var hit_hold_seconds := 0.22
 ## Visual-only punch pose length. Independent of AttackState Recovery timing.
-@export_range(0.0, 2.0, 0.01, "or_greater") var attack_pose_hold_seconds := 0.20
-@export_range(0.0, 2.0, 0.01, "or_greater") var slip_visual_hold_seconds := 0.32
-@export_range(0.0, 2.0, 0.01, "or_greater") var guard_visual_hold_seconds := 0.25
+@export_range(0.0, 2.0, 0.01, "or_greater") var attack_pose_hold_seconds := 0.28
+@export_range(0.0, 2.0, 0.01, "or_greater") var slip_visual_hold_seconds := 0.38
+@export_range(0.0, 2.0, 0.01, "or_greater") var guard_visual_hold_seconds := 0.32
 ## Set by CombatVisualRoot on EVADE (additive; cleared when pose ends).
 var _evade_passby_offset := Vector2.ZERO
 var _attack_miss_clearance := Vector2.ZERO
+var _logged_final_y := 0.0
 
 @export_group("Knockdown Impact Shake")
 ## Visual-only vertical jolt on OpponentSprite (not screen / HUD shake).
@@ -102,6 +104,8 @@ var _defense_pose_token := 0
 var _defense_hold_alive := false
 var _knockdown_impact_token := 0
 var _finisher_freeze := false
+var _finisher_sealed := false
+var _sealed_texture: Texture2D
 
 var _breathing_tween: Tween
 var _knockdown_impact_tween: Tween
@@ -169,6 +173,7 @@ func set_exhausted_ghost(active: bool) -> void:
 
 
 func _process(delta: float) -> void:
+	_tick_attack_miss(delta)
 	var step := delta / maxf(ghost_fade_seconds, 0.01)
 	_ghost_weight = move_toward(_ghost_weight, _ghost_target, step)
 	if _ghost_a == null or _ghost_b == null:
@@ -192,8 +197,14 @@ func _process(delta: float) -> void:
 
 
 func set_parallax_offset(offset: Vector2) -> void:
+	var started_down := parallax_offset.y > -1.0 and offset.y <= -1.0
+	var ended_down := parallax_offset.y <= -1.0 and offset.y > -1.0
 	parallax_offset = offset
 	_apply_composed_transform()
+	if started_down:
+		log_opponent_transform("DOWN_EVADE_START")
+	elif ended_down:
+		log_opponent_transform("DOWN_EVADE_END")
 
 
 func _on_attack_state_changed(state: int, attack_data) -> void:
@@ -206,18 +217,18 @@ func _on_attack_state_changed(state: int, attack_data) -> void:
 		return
 	match state:
 		AttackStateType.AttackState.STARTUP:
-			## Keep stance / prior pose. Do not show Straight PNG during Startup.
 			_cancel_attack_pose_hold()
 			_stop_breathing()
 			if _priority == Priority.ATTACK:
 				_release_attack_pose_to_stance()
+			log_opponent_transform("ATTACK_STARTUP")
 		AttackStateType.AttackState.ACTIVE:
 			if attack_data == null:
 				return
 			_begin_attack_pose(attack_data.attack_type)
+			log_opponent_transform("ATTACK_ACTIVE")
 		AttackStateType.AttackState.RECOVERY:
-			## Combat Recovery continues. Visual may already be back on stance.
-			pass
+			log_opponent_transform("ATTACK_RECOVERY")
 		AttackStateType.AttackState.IDLE:
 			if _attack_pose_holding:
 				return
@@ -315,7 +326,6 @@ func apply_evade_passby_offset(offset: Vector2) -> void:
 
 func clear_evade_passby() -> void:
 	_evade_passby_offset = Vector2.ZERO
-	_attack_miss_clearance = Vector2.ZERO
 	_refresh_action_offset()
 
 
@@ -382,6 +392,7 @@ func _return_to_stance() -> void:
 	_cancel_defense_hold()
 	_cancel_attack_pose_hold()
 	_hit_release_token += 1
+	_snap_attack_miss()
 	_stop_breathing()
 	clear_evade_passby()
 	_knockdown_offset = Vector2.ZERO
@@ -411,7 +422,7 @@ func _begin_defense_pose(pose_name: String, texture_path: String, hold: float) -
 	var token := _defense_pose_token
 	_defense_hold_alive = true
 	_set_priority(Priority.DEFENSE)
-	_action_effect_offset = Vector2.ZERO
+	_refresh_action_offset()
 	_show_pose(pose_name, texture_path)
 	if not is_inside_tree():
 		return
@@ -489,11 +500,13 @@ func set_finisher_freeze(active: bool) -> void:
 	_finisher_freeze = active
 	if active:
 		_stop_breathing()
-		## Cancel auto-release timers so pose stays for the freeze duration.
+		_finisher_sealed = false
 		_attack_pose_token += 1
 		_hit_release_token += 1
 		_attack_pose_holding = _priority == Priority.ATTACK or _attack_pose_holding
+		call_deferred("_seal_finisher_pose")
 		return
+	_finisher_sealed = false
 	## Freeze ended. The next attack cancel may return to stance.
 	_attack_pose_holding = false
 
@@ -504,10 +517,32 @@ func _arm_attack_evade_offset() -> void:
 		_refresh_action_offset()
 		return
 	var parts: Dictionary = root.attack_texture_evade_offsets()
-	_attack_miss_clearance = parts["clearance"]
 	var passby: Vector2 = parts["passby"]
 	if _evade_passby_offset == Vector2.ZERO and passby != Vector2.ZERO:
 		_evade_passby_offset = passby
+	_refresh_action_offset()
+
+
+func _tick_attack_miss(delta: float) -> void:
+	var root := get_parent()
+	if root == null or not root.has_method("down_attack_miss_motion"):
+		return
+	var showing := _attack_pose_holding and not _finisher_freeze and _priority < Priority.KNOCKDOWN
+	var motion: Dictionary = root.down_attack_miss_motion(showing)
+	var target: Vector2 = motion["target"]
+	var speed: float = motion["speed"]
+	if target.y < 0.0 and root.has_method("max_opponent_upward_lift"):
+		var used := -minf(parallax_offset.y + _evade_passby_offset.y, 0.0)
+		var room := maxf(float(root.max_opponent_upward_lift()) - used, 0.0)
+		target.y = -minf(-target.y, room)
+	if _attack_miss_clearance.distance_to(target) <= 0.01:
+		return
+	_attack_miss_clearance = _attack_miss_clearance.move_toward(target, speed * delta)
+	_refresh_action_offset()
+
+
+func _snap_attack_miss() -> void:
+	_attack_miss_clearance = Vector2.ZERO
 	_refresh_action_offset()
 
 
@@ -546,9 +581,9 @@ func reset_for_new_round() -> void:
 	_clear_knockdown_impact()
 	_knockdown_offset = Vector2.ZERO
 	_evade_passby_offset = Vector2.ZERO
+	_snap_attack_miss()
 	_action_effect_offset = Vector2.ZERO
 	parallax_offset = Vector2.ZERO
-	_attack_miss_clearance = Vector2.ZERO
 	_show_idle()
 
 
@@ -556,14 +591,21 @@ func _show_idle() -> void:
 	if _locked_final_ko:
 		return
 	_set_priority(Priority.IDLE)
-	_evade_passby_offset = Vector2.ZERO
-	_attack_miss_clearance = Vector2.ZERO
-	_action_effect_offset = Vector2.ZERO
+	_refresh_action_offset()
 	_show_pose("IDLE", texture_idle)
 	_start_breathing()
 
 
+func _seal_finisher_pose() -> void:
+	if not _finisher_freeze or _sprite == null:
+		return
+	_finisher_sealed = true
+	_sealed_texture = _sprite.texture
+
+
 func _show_pose(state_name: String, texture_path: String) -> void:
+	if _finisher_freeze and _finisher_sealed:
+		return
 	var texture := TextureResolver.try_load(texture_path)
 	_sprite.texture = texture
 	_sprite.centered = false
@@ -576,10 +618,29 @@ func _show_pose(state_name: String, texture_path: String) -> void:
 		push_warning("OpponentVisual missing texture: %s" % texture_path)
 	_apply_composed_transform()
 	_set_visual_state(state_name)
+	log_opponent_transform("POSE_CHANGE")
 
 
 func apply_composed_transform() -> void:
 	_apply_composed_transform()
+
+
+func log_opponent_transform(event: String) -> void:
+	if not print_opponent_transform or _anchor == null:
+		return
+	var final_y := _anchor.position.y
+	print("[OPP_TRANSFORM]")
+	print("event=%s" % event)
+	print("pose=%s" % current_visual_state)
+	print("base_y=%.1f" % asset_base_position.y)
+	print("evade_y=%.1f" % parallax_offset.y)
+	print("pass_by_y=%.1f" % _evade_passby_offset.y)
+	print("attack_miss_y=%.1f" % _attack_miss_clearance.y)
+	print("local_pose_y=0.0")
+	print("final_y=%.1f" % final_y)
+	print("previous_final_y=%.1f" % _logged_final_y)
+	print("position_delta=%.1f" % (final_y - _logged_final_y))
+	_logged_final_y = final_y
 
 
 func _apply_composed_transform() -> void:

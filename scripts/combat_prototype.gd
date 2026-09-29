@@ -1,5 +1,6 @@
 extends Node
 
+const CursorPolicy = preload("res://scripts/cursor_policy.gd")
 const ATTACK_NAMES := [
 	"Left straight",
 	"Right straight",
@@ -24,6 +25,8 @@ const PLAYER_STATE_NAMES := [
 	"GUARD",
 ]
 const DEFENSE_RESULT_NAMES := ["HIT", "BLOCK", "EVADE"]
+## Time from match confirmation to the result wipe. Not the knockdown resume delay.
+const RESULT_PRESENTATION_SECONDS := 3.0
 
 @onready var combat_input: Node = $PlayerCombatInput
 @onready var attack_state: Node = $PlayerAttackState
@@ -79,11 +82,20 @@ const DEFENSE_RESULT_NAMES := ["HIT", "BLOCK", "EVADE"]
 	$DebugHUD/Panel/Margin/Content/LastInputRow/LastInputValue
 
 
+var _guard_release_required := false
+var _result_sent := false
+var _result_banner := ""
+var _result_banner_done := false
+var _result_open_msec := 0
+var _result_payload = null
+
+
 func _ready() -> void:
 	_ensure_fatigue_vignette()
 	combat_input.attack_requested.connect(_on_attack_requested)
 	combat_input.evade_pressed.connect(_on_evade_pressed)
 	combat_input.evade_hold_changed.connect(_on_evade_hold_changed)
+	combat_input.evade_released.connect(_on_evade_key_released)
 	combat_input.guard_changed.connect(_on_guard_changed)
 	attack_state.state_changed.connect(_on_attack_state_changed)
 	stamina.stamina_changed.connect(_on_stamina_changed)
@@ -94,6 +106,7 @@ func _ready() -> void:
 	offense_resolver.opponent_knockdown.connect(_on_opponent_knockdown)
 	defense_resolver.player_knockdown.connect(_on_player_knockdown)
 	defense_resolver.attack_resolved.connect(_on_opponent_attack_resolved)
+	defense_resolver.block_guard_broken.connect(_on_block_guard_broken)
 	offense_resolver.attack_hit.connect(_on_player_attack_hit)
 	if opponent_ai != null and opponent_ai.has_method("_on_player_attack_resolved"):
 		if not offense_resolver.attack_hit.is_connected(opponent_ai._on_player_attack_resolved):
@@ -129,6 +142,10 @@ func _ready() -> void:
 	)
 	_on_match_hud_text_changed("FIGHTING")
 	_on_score_hud_text_changed("--")
+	var pause = preload("res://scripts/pause_menu.gd").new()
+	pause.name = "PauseMenu"
+	add_child(pause)
+	CursorPolicy.hide_pointer()
 
 
 func _ensure_fatigue_vignette() -> void:
@@ -149,6 +166,7 @@ func _ensure_fatigue_vignette() -> void:
 
 
 func _process(_delta: float) -> void:
+	_release_result_after_presentation()
 	if not _can_accept_combat_input():
 		_clear_action_buffer()
 		return
@@ -206,6 +224,11 @@ func _on_attack_requested(attack: int) -> void:
 		ATTACK_NAMES[attack],
 		PLAYER_STATE_NAMES[player_state.current_state],
 	]
+
+
+func _on_evade_key_released(direction: int) -> void:
+	if player_evade != null and player_evade.has_method("notify_direction_released"):
+		player_evade.notify_direction_released(direction)
 
 
 ## Continuous movement target (always allowed when fighting; no stamina).
@@ -318,6 +341,7 @@ func _sync_guard_release_if_needed() -> void:
 
 func _on_guard_changed(is_guarding: bool) -> void:
 	if not is_guarding:
+		_guard_release_required = false
 		if action_buffer != null and action_buffer.has_method("clear_guard"):
 			action_buffer.clear_guard()
 
@@ -330,12 +354,20 @@ func _on_guard_changed(is_guarding: bool) -> void:
 		return
 
 	if is_guarding and not player_state.can_attack() and _can_buffer_combat_action():
+		if not _can_raise_guard():
+			if stamina != null and stamina.current_stamina <= 0.0:
+				_guard_release_required = true
+			return
 		player_state.set_guard_held(true)
 		action_buffer.buffer_guard()
 		_update_guard_debug()
 		last_input_value.text = "High guard input: PRESSED (buffered)"
 		return
 
+	if is_guarding and not _can_raise_guard():
+		if stamina != null and stamina.current_stamina <= 0.0:
+			_guard_release_required = true
+		return
 	player_state.set_guard_held(is_guarding)
 	if is_guarding:
 		_clear_action_buffer()
@@ -427,7 +459,7 @@ func _try_resolve_buffered_actions() -> void:
 				if not combat_input.is_guarding:
 					action_buffer.clear_guard()
 					return
-				if not _can_cancel_into_guard():
+				if not _can_cancel_into_guard() or not _can_raise_guard():
 					return
 				_unlock_current_action_for_cancel()
 				player_state.set_guard_held(true)
@@ -438,7 +470,7 @@ func _try_resolve_buffered_actions() -> void:
 				pass
 		return
 
-	if combat_input.is_guarding and _can_cancel_into_guard():
+	if combat_input.is_guarding and _can_cancel_into_guard() and _can_raise_guard():
 		_unlock_current_action_for_cancel()
 		player_state.set_guard_held(true)
 		_update_guard_debug()
@@ -465,6 +497,18 @@ func _can_cancel_into_evade() -> bool:
 	if attack_state.is_recovering():
 		return attack_state.get_recovery_progress() >= action_buffer.attack_to_evade
 	return false
+
+
+func _can_raise_guard() -> bool:
+	if _guard_release_required:
+		return false
+	if stamina != null and stamina.current_stamina <= 0.0:
+		return false
+	return true
+
+
+func _on_block_guard_broken() -> void:
+	_guard_release_required = true
 
 
 func _can_cancel_into_guard() -> bool:
@@ -589,6 +633,62 @@ func _on_match_result_ready(result) -> void:
 			]
 		_:
 			last_input_value.text = "Match result"
+	_queue_result_scene(result)
+
+
+func _queue_result_scene(result) -> void:
+	if _result_sent or result == null:
+		return
+	var ResultType = preload("res://scripts/match_result_data.gd").ResultType
+	var expected := ""
+	if result.result_type == ResultType.KO:
+		expected = "KNOCKOUT"
+	elif result.result_type == ResultType.DECISION or result.result_type == ResultType.DRAW:
+		expected = "DECISION"
+	else:
+		return
+	_result_banner = expected
+	_result_payload = result
+	_result_banner_done = false
+	_result_open_msec = Time.get_ticks_msec() + int(RESULT_PRESENTATION_SECONDS * 1000.0)
+	var banner := get_node_or_null("CombatHUD/CombatAnnouncement")
+	if banner != null and banner.has_signal("pass_finished"):
+		if not banner.pass_finished.is_connected(_on_result_banner_finished):
+			banner.pass_finished.connect(_on_result_banner_finished)
+		return
+	_result_banner_done = true
+
+
+func _on_result_banner_finished(text: String) -> void:
+	if _result_sent or text != _result_banner:
+		return
+	_result_banner_done = true
+
+
+func _release_result_after_presentation() -> void:
+	if _result_sent or _result_payload == null or not _result_banner_done:
+		return
+	if Time.get_ticks_msec() < _result_open_msec:
+		return
+	_begin_result_transition()
+
+
+func _begin_result_transition() -> void:
+	if _result_sent or _result_payload == null:
+		return
+	_result_sent = true
+	var ResultScript = preload("res://scripts/match_result_data.gd")
+	var mode := 0
+	var game_mode := get_node_or_null("GameMode")
+	if game_mode != null:
+		mode = int(game_mode.mode)
+	ResultScript.publish(_result_payload, mode)
+	var PageTransition = preload("res://scripts/page_transition.gd")
+	PageTransition.request(mode, _build_result_scene)
+
+
+func _build_result_scene(_mode: int) -> Node:
+	return load("res://scenes/result.tscn").instantiate()
 
 
 func _on_opponent_attack_resolved(
@@ -637,14 +737,16 @@ func _on_player_attack_hit(
 
 
 func _apply_player_hit_reaction(was_knockdown: bool) -> void:
-	if not was_knockdown:
+	if was_knockdown:
+		_clear_action_buffer()
+		_clear_evade_all()
+		if attack_state != null:
+			attack_state.cancel_attack()
+		if player_state != null:
+			player_state.force_reset_to_idle()
 		return
-	_clear_action_buffer()
-	_clear_evade_all()
-	if attack_state != null:
-		attack_state.cancel_attack()
-	if player_state != null:
-		player_state.force_reset_to_idle()
+	if player_evade != null and player_evade.has_method("break_lateral_movement_until_release"):
+		player_evade.break_lateral_movement_until_release()
 
 
 func _apply_opponent_hit_reaction(was_knockdown: bool) -> void:

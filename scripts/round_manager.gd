@@ -21,6 +21,7 @@ enum RoundState {
 	DECISION_REQUIRED,
 	MATCH_FINISHED,
 	TRAIT_PREVIEW,
+	ROUND_INTRO,
 }
 
 const AttackStateType = preload("res://scripts/player_attack_state.gd")
@@ -33,6 +34,9 @@ const KnockdownMeterType = preload("res://scripts/knockdown_meter.gd")
 const DefenseResolverType = preload("res://scripts/player_defense_resolver.gd")
 const OffenseResolverType = preload("res://scripts/player_offense_resolver.gd")
 const KnockdownManagerType = preload("res://scripts/knockdown_manager.gd")
+const GameModeType = preload("res://scripts/game_mode.gd")
+const MatchSettings = preload("res://scripts/match_settings.gd")
+const CursorPolicy = preload("res://scripts/cursor_policy.gd")
 
 @export var knockdown_manager: KnockdownManagerType
 @export var player_attack_state: AttackStateType
@@ -63,10 +67,13 @@ var player_round_wins := 0
 var opponent_round_wins := 0
 var _round_awarded := false
 var _preview_round := 1
+var _intro: Node
 
 @export_group("Debug")
 @export var auto_start := true
 @export var print_events := true
+## Headless tests skip the arena open. A real window always plays it.
+@export var force_round_intro := false
 
 var round_state := RoundState.IDLE
 var current_round := 0
@@ -92,6 +99,10 @@ func _ready() -> void:
 	_freeze_combat()
 	knockdown_manager.set_combat_control_enabled(false)
 	_emit_hud()
+	_intro = preload("res://scripts/round_intro.gd").new()
+	_intro.name = "RoundIntro"
+	add_child(_intro)
+	_intro.completed.connect(_on_round_intro_completed)
 
 	if auto_start:
 		call_deferred("start_match")
@@ -145,9 +156,114 @@ func start_match() -> void:
 	player_round_wins = 0
 	opponent_round_wins = 0
 	timer_paused = true
-	_open_trait_preview(1)
+	_print_game_mode()
+	_begin_round_entry(1)
+
+
+func _begin_round_entry(round_number: int) -> void:
+	if not _trait_mode():
+		_apply_normal_round()
+		_enter_fighting_round(round_number)
+		return
+	_open_trait_preview(round_number)
 	if DisplayServer.get_name() == "headless":
 		call_deferred("confirm_round_start")
+
+
+func _enter_fighting_round(round_number: int) -> void:
+	_reset_fighters_for_round()
+	if knockdown_manager != null and knockdown_manager.has_method("reset_for_next_round"):
+		knockdown_manager.reset_for_next_round()
+	if combat_visual_root != null and combat_visual_root.has_method("reset_for_new_round"):
+		combat_visual_root.reset_for_new_round()
+	if _uses_round_intro():
+		_open_round_intro(round_number)
+		return
+	_start_round(round_number)
+
+
+func _uses_round_intro() -> bool:
+	if force_round_intro:
+		return true
+	return DisplayServer.get_name() != "headless"
+
+
+func _open_round_intro(round_number: int) -> void:
+	current_round = round_number
+	time_remaining = round_duration
+	break_time_remaining = 0.0
+	timer_paused = true
+	round_state = RoundState.ROUND_INTRO
+	_round_awarded = false
+	_freeze_combat()
+	if knockdown_manager != null:
+		knockdown_manager.set_combat_control_enabled(false)
+	_clear_ai_for_round()
+	round_state_changed.emit(round_state)
+	_emit_hud()
+	if _intro != null:
+		_intro.start(round_number)
+	CursorPolicy.hide_pointer()
+
+
+func _on_round_intro_completed(round_number: int) -> void:
+	if round_state != RoundState.ROUND_INTRO or round_number != current_round:
+		return
+	_clear_ai_for_round()
+	_clear_continuous_evade()
+	_start_round(round_number)
+
+
+func _clear_ai_for_round() -> void:
+	var ai := get_node_or_null("../OpponentAI")
+	if ai != null and ai.has_method("clear_pending_combat_decisions"):
+		ai.clear_pending_combat_decisions()
+	if ai != null and ai.has_method("_roll_proactive_timer"):
+		ai._roll_proactive_timer()
+	if ai != null and ai.has_method("_roll_offense_cooldown"):
+		ai._roll_offense_cooldown(true)
+
+
+func _trait_mode() -> bool:
+	var mode = _game_mode()
+	if mode == null:
+		return true
+	return mode.is_trait_mode()
+
+
+func _game_mode():
+	var node = get_node_or_null("../GameMode")
+	if node != null:
+		return node
+	if is_inside_tree():
+		return GameModeType.find(get_tree())
+	return null
+
+
+func _print_game_mode() -> void:
+	var mode = _game_mode()
+	var label := "TRAIT"
+	if mode != null:
+		label = mode.mode_label()
+	print("[GAME_MODE] %s" % label)
+	print(
+		"[DIFFICULTY] %s reaction=%.2f defense=%.2f offense=%.2f retaliation=%.2f"
+		% [
+			MatchSettings.difficulty_name(),
+			MatchSettings.reaction_time_multiplier(),
+			MatchSettings.defense_chance_multiplier(),
+			MatchSettings.offense_frequency_multiplier(),
+			MatchSettings.retaliation_chance_multiplier(),
+		]
+	)
+
+
+func _apply_normal_round() -> void:
+	var traits = _trait_manager()
+	if traits != null and traits.has_method("clear_traits"):
+		traits.clear_traits()
+	_hide_trait_card()
+	print("[TRAITS] disabled (NORMAL)")
 
 
 func _start_round(round_number: int) -> void:
@@ -168,6 +284,7 @@ func _start_round(round_number: int) -> void:
 	round_started.emit(current_round)
 	time_changed.emit(time_remaining)
 	_emit_hud()
+	CursorPolicy.hide_pointer()
 
 
 func _end_round() -> void:
@@ -192,7 +309,7 @@ func _end_round() -> void:
 	if _someone_clinched() or current_round >= total_rounds:
 		call_deferred("_finish_series_from_rounds", false)
 	else:
-		call_deferred("_open_trait_preview", current_round + 1)
+		call_deferred("_begin_round_entry", current_round + 1)
 
 
 func _start_break() -> void:
@@ -238,11 +355,23 @@ func _on_knockdown_state_changed(state: int) -> void:
 		KnockdownManagerType.MatchState.PLAYER_DOWN,
 		KnockdownManagerType.MatchState.OPPONENT_DOWN,
 		KnockdownManagerType.MatchState.DOUBLE_DOWN,
+		KnockdownManagerType.MatchState.RESUME_DELAY,
 	]:
 		timer_paused = true
 		if print_events:
 			print("Round timer paused (knockdown)")
 		_emit_hud()
+
+
+func resume_after_knockdown() -> void:
+	if round_state != RoundState.FIGHTING:
+		return
+	if knockdown_manager != null and knockdown_manager.match_state != KnockdownManagerType.MatchState.FIGHTING:
+		return
+	timer_paused = false
+	if print_events:
+		print("Round timer resumed (recovery)")
+	_emit_hud()
 
 
 func _on_knockdown_recovered(_downed_side: int, _at_count: int) -> void:
@@ -264,7 +393,7 @@ func _on_round_voided() -> void:
 	print("ROUND %d VOID" % current_round)
 	print("Score remains %d-%d" % [score_player, score_opponent])
 	print("ROUND %d REMATCH" % current_round)
-	_open_trait_preview(current_round)
+	_begin_round_entry(current_round)
 
 
 func _on_knockdown_match_finished(winner: int) -> void:
@@ -275,7 +404,7 @@ func _on_knockdown_match_finished(winner: int) -> void:
 	if _someone_clinched():
 		_finish_series_from_rounds(true)
 	else:
-		_open_trait_preview(current_round + 1)
+		_begin_round_entry(current_round + 1)
 
 
 func _award_decision_round() -> void:
@@ -324,12 +453,8 @@ func _finish_series_from_rounds(by_ko: bool) -> void:
 func confirm_round_start() -> void:
 	if round_state != RoundState.TRAIT_PREVIEW:
 		return
-	_reset_fighters_for_round()
-	if knockdown_manager != null and knockdown_manager.has_method("reset_for_next_round"):
-		knockdown_manager.reset_for_next_round()
-	if combat_visual_root != null and combat_visual_root.has_method("reset_for_new_round"):
-		combat_visual_root.reset_for_new_round()
-	_start_round(_preview_round)
+	_hide_trait_card()
+	_enter_fighting_round(_preview_round)
 
 
 func _open_trait_preview(round_number: int) -> void:
@@ -355,9 +480,9 @@ func _reset_fighters_for_round() -> void:
 	if opponent_stamina != null and opponent_stamina.has_method("reset_to_max"):
 		opponent_stamina.reset_to_max()
 	if player_knockdown_meter != null:
-		player_knockdown_meter.set_meter(0.0)
+		player_knockdown_meter.set_meter(player_knockdown_meter.max_meter)
 	if opponent_knockdown_meter != null:
-		opponent_knockdown_meter.set_meter(0.0)
+		opponent_knockdown_meter.set_meter(opponent_knockdown_meter.max_meter)
 	_clear_continuous_evade()
 	if player_hit_stun != null:
 		player_hit_stun.clear_hit_stun()
@@ -383,6 +508,12 @@ func _show_trait_card(round_number: int) -> void:
 	var opponent_traits: Array = traits.opponent_traits if traits != null else []
 	card.show_round(round_number, player_traits, opponent_traits, player_round_wins, opponent_round_wins)
 	_print_round_traits(player_traits, opponent_traits)
+
+
+func _hide_trait_card() -> void:
+	var card = get_node_or_null("../TraitRoundCard")
+	if card != null:
+		card.visible = false
 
 
 func _trait_manager():
@@ -485,6 +616,8 @@ func _emit_hud() -> void:
 				_format_clock(time_remaining),
 				pause_mark,
 			]
+		RoundState.ROUND_INTRO:
+			text = "ROUND %d / %d\n%s" % [current_round, total_rounds, _format_clock(time_remaining)]
 		RoundState.ROUND_END:
 			text = "ROUND %d / %d\nROUND END" % [current_round, total_rounds]
 		RoundState.BREAK:

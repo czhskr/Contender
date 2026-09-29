@@ -44,6 +44,8 @@ var _retrigger_remaining := 0.0
 
 ## Last direction that successfully opened a window (for pass-by presentation).
 var last_window_direction := Direction.NONE
+## After a HIT, this lateral direction stays off until that key is released.
+var _movement_release_lock := Direction.NONE
 
 
 func _ready() -> void:
@@ -60,6 +62,8 @@ func _process(delta: float) -> void:
 
 
 func set_movement_direction(direction: int) -> void:
+	if direction != Direction.NONE and direction == _movement_release_lock:
+		return
 	if direction == movement_direction:
 		return
 	movement_direction = direction
@@ -82,6 +86,8 @@ func offset_for_direction(direction: int) -> Vector2:
 ## Explicit press: opens the gameplay window. Does not spend Stamina.
 func try_begin_window(direction: int) -> bool:
 	if direction == Direction.NONE:
+		return false
+	if _combat_actions_locked():
 		return false
 	if _retrigger_remaining > 0.0:
 		if print_events:
@@ -128,6 +134,7 @@ func _end_window() -> void:
 
 ## HIT / Knockdown / Round / Match — clear movement + window.
 func clear_all() -> void:
+	_movement_release_lock = Direction.NONE
 	if window_active:
 		_end_window()
 	window_active = false
@@ -139,3 +146,26 @@ func clear_all() -> void:
 
 func center_movement() -> void:
 	set_movement_direction(Direction.NONE)
+
+
+## HIT breaks LEFT/RIGHT movement only. The same key must be released before it can return.
+func break_lateral_movement_until_release() -> void:
+	var direction := movement_direction
+	if direction != Direction.LEFT and direction != Direction.RIGHT:
+		return
+	if window_active and window_direction == direction:
+		end_window()
+	_movement_release_lock = direction
+	set_movement_direction(Direction.NONE)
+
+
+func notify_direction_released(direction: int) -> void:
+	if _movement_release_lock == direction:
+		_movement_release_lock = Direction.NONE
+
+
+func _combat_actions_locked() -> bool:
+	if not is_inside_tree():
+		return false
+	var knockdown = get_node_or_null("../KnockdownManager")
+	return knockdown != null and knockdown.has_method("new_actions_locked") and knockdown.new_actions_locked()

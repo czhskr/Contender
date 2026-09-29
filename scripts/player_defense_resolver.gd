@@ -16,6 +16,7 @@ signal attack_resolved(
 	was_knockdown: bool
 )
 signal player_knockdown(attack_type: int)
+signal block_guard_broken
 
 enum DefenseResult {
 	HIT,
@@ -24,6 +25,7 @@ enum DefenseResult {
 }
 
 const RESULT_NAMES := ["HIT", "BLOCK", "EVADE"]
+const BLOCK_STAMINA_COST_SCALE := 2.0
 const ATTACK_NAMES := [
 	"Left Straight",
 	"Right Straight",
@@ -94,11 +96,17 @@ func resolve_attack(attack_data: AttackDataType) -> void:
 			result = DefenseResult.BLOCK
 		raw_kd = _final_taken(attack_data.attack_type, raw_kd, blocked)
 
+	if result == DefenseResult.BLOCK and player_stamina != null:
+		player_stamina.apply_block_stamina_damage(attack_data.stamina_cost * BLOCK_STAMINA_COST_SCALE)
+		if player_stamina.current_stamina <= 0.0 and player_action_state != null:
+			player_action_state.set_guard_held(false)
+			block_guard_broken.emit()
+
 	var applied := 0.0
 	var was_knockdown := false
 	if meter_updates_enabled and raw_kd > 0.0:
 		applied = player_knockdown_meter.apply_knockdown_damage(raw_kd)
-		if player_knockdown_meter.is_full():
+		if player_knockdown_meter.is_knockdown_threshold():
 			was_knockdown = true
 			_notify_threshold(true)
 			player_knockdown.emit(attack_data.attack_type)

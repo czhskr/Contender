@@ -103,6 +103,20 @@ func spend_for_attack(stamina_cost: float) -> bool:
 	return true
 
 
+## Successful block cost. Uses the attack's base cost, clamps at 0, and restarts regen.
+func apply_block_stamina_damage(amount: float) -> float:
+	var damage := maxf(amount, 0.0)
+	if damage <= 0.0:
+		return 0.0
+	_time_since_regen_block = 0.0
+	var before := current_stamina
+	current_stamina = maxf(current_stamina - damage, 0.0)
+	var applied := before - current_stamina
+	stamina_changed.emit(current_stamina, max_stamina)
+	_evaluate_exhausted()
+	return applied
+
+
 func reset_to_max() -> void:
 	current_stamina = max_stamina
 	_evaluate_exhausted()

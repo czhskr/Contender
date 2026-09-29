@@ -8,6 +8,7 @@ extends Node
 ## 1/2/3-hit opposite-hand combo. Follow-ups still use recovery cancel,
 ## same-hand reuse, and stamina. Choosing not to attack can still wait.
 
+const MatchSettings = preload("res://scripts/match_settings.gd")
 const DifficultyType = preload("res://scripts/opponent_difficulty_settings.gd")
 const AttackStateType = preload("res://scripts/player_attack_state.gd")
 const OpponentAttackStateType = preload("res://scripts/opponent_attack_state.gd")
@@ -44,18 +45,18 @@ signal difficulty_changed(settings: DifficultyType)
 
 @export_group("Pressure Defense")
 @export_range(0.0, 3.0, 0.01) var pressure_memory_duration := 0.60
-@export_range(0.0, 1.0, 0.01) var pressure_defense_chance := 0.85
-@export_range(0.0, 1.0, 0.01) var pressure_defense_chance_hit_2 := 0.95
-@export_range(0.0, 1.0, 0.01) var pressure_defense_chance_hit_3_plus := 1.0
+@export_range(0.0, 1.0, 0.01) var pressure_defense_chance := 0.60
+@export_range(0.0, 1.0, 0.01) var pressure_defense_chance_hit_2 := 0.68
+@export_range(0.0, 1.0, 0.01) var pressure_defense_chance_hit_3_plus := 0.76
 @export_range(0.0, 1.0, 0.01) var pressure_guard_weight := 0.45
-@export_range(0.0, 1.0, 0.01) var pressure_reaction_delay := 0.06
-@export_range(0.0, 1.0, 0.01) var pressure_reaction_hit_2 := 0.03
-@export_range(0.01, 1.0, 0.01) var pressure_reaction_hit_3_plus := 0.01
+@export_range(0.0, 1.0, 0.01) var pressure_reaction_delay := 0.104
+@export_range(0.0, 1.0, 0.01) var pressure_reaction_hit_2 := 0.065
+@export_range(0.01, 1.0, 0.01) var pressure_reaction_hit_3_plus := 0.039
 
 @export_group("Proactive Defense")
-@export_range(0.1, 6.0, 0.01) var proactive_defense_interval_min := 0.50
-@export_range(0.1, 6.0, 0.01) var proactive_defense_interval_max := 1.00
-@export_range(0.0, 1.0, 0.01) var proactive_guard_chance := 0.45
+@export_range(0.1, 6.0, 0.01) var proactive_defense_interval_min := 0.55
+@export_range(0.1, 6.0, 0.01) var proactive_defense_interval_max := 1.05
+@export_range(0.0, 1.0, 0.01) var proactive_guard_chance := 0.32
 @export_range(0.0, 1.0, 0.01) var proactive_guard_weight := 0.65
 @export_range(0.0, 2.0, 0.01) var proactive_guard_hold_min := 0.55
 @export_range(0.0, 2.0, 0.01) var proactive_guard_hold_max := 0.90
@@ -66,12 +67,13 @@ signal difficulty_changed(settings: DifficultyType)
 @export_range(0.0, 1.0, 0.01) var pattern_quick_chance := 0.30
 @export_range(0.0, 1.0, 0.01) var pattern_burst_chance := 0.20
 @export_range(0.0, 1.0, 0.01) var followup_opposite_chance := 0.70
-@export_range(0.0, 1.0, 0.01) var retaliation_block_chance := 0.70
-@export_range(0.0, 1.0, 0.01) var retaliation_evade_chance := 0.90
+@export_range(0.0, 1.0, 0.01) var retaliation_block_chance := 0.45
+@export_range(0.0, 1.0, 0.01) var retaliation_evade_chance := 0.60
 @export_range(0.0, 2.0, 0.01) var initiative_block_duration := 0.20
 @export_range(0.0, 2.0, 0.01) var initiative_evade_duration := 0.35
 @export_range(0.5, 1.0, 0.01) var neutral_offense_scale := 0.82
 @export var print_ai_decisions := false
+@export var print_stamina_decisions := true
 
 var _offense_cooldown := 0.0
 var _reaction_pending := false
@@ -418,19 +420,13 @@ func _try_offense() -> void:
 		if taken == 1:
 			return
 
-	if randf() > difficulty.aggression * neutral_offense_scale:
+	if randf() > _proactive_attack_chance():
+		_log_stamina_decision("WAIT", "")
 		_roll_offense_cooldown(false)
 		return
 
-	if opponent_stamina == null or opponent_stamina.current_stamina <= difficulty.low_stamina_threshold:
-		if randf() < difficulty.low_stamina_wait_chance:
-			if print_ai_decisions and not _logged_stamina_wait:
-				print("AI waiting for stamina recovery")
-				_logged_stamina_wait = true
-			_roll_offense_cooldown(false)
-			return
-
 	if not _start_new_attack():
+		_log_stamina_decision("WAIT", "")
 		if print_ai_decisions and not _logged_stamina_wait:
 			print("AI waiting for stamina recovery")
 			_logged_stamina_wait = true
@@ -592,17 +588,77 @@ func _begin_combo(first_type: int) -> void:
 		_choose_follow_hand()
 	if print_ai_decisions:
 		print("[AI_PATTERN] %s intent=%d" % [_pattern_name(_attack_pattern), length])
+	_log_stamina_decision("ATTACK", _pattern_name(_attack_pattern))
 
 
 func _choose_pattern() -> int:
-	var roll := randf()
-	if roll < pattern_single_chance:
+	var weights := _pattern_weights()
+	var total := 0.0
+	for weight in weights:
+		total += weight
+	if total <= 0.0:
 		return 0
-	if roll < pattern_single_chance + pattern_quick_chance:
-		return 1
-	if roll < pattern_single_chance + pattern_quick_chance + pattern_burst_chance:
-		return 2
-	return 3
+	var roll := randf() * total
+	var cursor := 0.0
+	for index in weights.size():
+		cursor += weights[index]
+		if roll <= cursor:
+			return index
+	return weights.size() - 1
+
+
+func stamina_ratio() -> float:
+	if opponent_stamina == null:
+		return 1.0
+	var maximum := float(opponent_stamina.max_stamina)
+	if maximum <= 0.0:
+		maximum = 100.0
+	return clampf(float(opponent_stamina.current_stamina) / maximum, 0.0, 1.0)
+
+
+## 1 at high stamina. Falls smoothly below 70% so the fighter starts leaving recovery time.
+func stamina_offense_modifier() -> float:
+	var ratio := stamina_ratio()
+	if ratio >= 0.70:
+		return 1.0
+	var t := ratio / 0.70
+	return lerpf(0.08, 1.0, pow(t, 1.35))
+
+
+## 1 at high stamina. Stretches the existing attack interval when stamina is low.
+func stamina_interval_modifier() -> float:
+	var ratio := stamina_ratio()
+	if ratio >= 0.70:
+		return 1.0
+	var t := ratio / 0.70
+	return lerpf(2.4, 1.0, pow(t, 1.05))
+
+
+func proactive_attack_chance() -> float:
+	var base := difficulty.aggression * neutral_offense_scale
+	return clampf(base * stamina_offense_modifier(), 0.0, 1.0)
+
+
+func _proactive_attack_chance() -> float:
+	return proactive_attack_chance()
+
+
+func _pattern_weights() -> Array[float]:
+	var conserve := clampf(1.0 - stamina_offense_modifier(), 0.0, 1.0)
+	var delayed := maxf(0.0, 1.0 - pattern_single_chance - pattern_quick_chance - pattern_burst_chance)
+	var weights: Array[float] = [
+		pattern_single_chance * (1.0 + 1.35 * conserve),
+		pattern_quick_chance * (1.0 - 0.62 * conserve),
+		pattern_burst_chance * (1.0 - 0.82 * conserve),
+		delayed * (1.0 - 0.62 * conserve),
+	]
+	var costs: Array[float] = [4.5, 9.0, 13.5, 9.0]
+	var stamina_now := maxf(_stamina_now(), 0.0)
+	for index in weights.size():
+		if weights[index] <= 0.0:
+			continue
+		weights[index] *= clampf(stamina_now / costs[index], 0.15, 1.0)
+	return weights
 
 
 func _pattern_name(pattern: int) -> String:
@@ -735,11 +791,28 @@ func _unit_roll_range(min_value: float, max_value: float) -> float:
 
 
 func _roll_offense_cooldown(initial: bool) -> void:
-	var minimum := difficulty.attack_interval_min * _trait_product(false, "offense_pace")
-	var maximum := maxf(difficulty.attack_interval_max * _trait_product(false, "offense_pace"), minimum)
+	var pace := _trait_product(false, "offense_pace") * stamina_interval_modifier()
+	var minimum := difficulty.attack_interval_min * pace
+	var maximum := maxf(difficulty.attack_interval_max * pace, minimum)
 	_offense_cooldown = randf_range(minimum, maximum)
 	if initial:
 		_offense_cooldown = minf(_offense_cooldown, maximum)
+
+
+func _log_stamina_decision(decision: String, pattern: String) -> void:
+	if not print_stamina_decisions:
+		return
+	print(
+		"[AI_STAMINA] stamina=%.1f ratio=%.2f offense_modifier=%.2f interval_modifier=%.2f pattern=%s decision=%s"
+		% [
+			_stamina_now(),
+			stamina_ratio(),
+			stamina_offense_modifier(),
+			stamina_interval_modifier(),
+			pattern if pattern != "" else "-",
+			decision,
+		]
+	)
 
 
 func _is_hit_stunned() -> bool:
@@ -819,9 +892,9 @@ func _on_player_attack_resolved(
 		_offer_pressure_defense()
 	elif result == 1:
 		_mark_pressure()
-		_arm_retaliation(retaliation_block_chance, "BLOCK")
+		_arm_retaliation(_scaled_chance(retaliation_block_chance, MatchSettings.retaliation_chance_multiplier()), "BLOCK")
 	elif result == 2:
-		_arm_retaliation(retaliation_evade_chance, "EVADE")
+		_arm_retaliation(_scaled_chance(retaliation_evade_chance, MatchSettings.retaliation_chance_multiplier()), "EVADE")
 
 
 func _arm_retaliation(chance: float, source: String) -> void:
@@ -1064,11 +1137,12 @@ func _try_schedule_pressure_recovery() -> void:
 
 
 func _pressure_defense_chance_now() -> float:
+	var base := pressure_defense_chance
 	if _pressure_hit_count >= 3:
-		return pressure_defense_chance_hit_3_plus
-	if _pressure_hit_count >= 2:
-		return pressure_defense_chance_hit_2
-	return pressure_defense_chance
+		base = pressure_defense_chance_hit_3_plus
+	elif _pressure_hit_count >= 2:
+		base = pressure_defense_chance_hit_2
+	return _scaled_chance(base, MatchSettings.defense_chance_multiplier())
 
 
 func _pressure_reaction_base() -> float:
@@ -1087,7 +1161,7 @@ func _compose_reaction(base_delay: float) -> float:
 		var maximum := float(player_stamina.get("max_stamina"))
 		if maximum > 0.0:
 			ratio = clampf(float(player_stamina.get("current_stamina")) / maximum, 0.0, 1.0)
-	var final_delay := maxf(base_delay * stamina_mod * trait_mod, 0.01)
+	var final_delay := maxf(base_delay * stamina_mod * trait_mod * MatchSettings.reaction_time_multiplier(), 0.01)
 	if print_ai_decisions:
 		print(
 			"[AI_REACTION] base=%.3f player_stamina=%.2f stamina_mod=%.2f trait_mod=%.2f final=%.3f"
@@ -1133,6 +1207,8 @@ func _choose_pressure_defense() -> String:
 
 
 func _begin_guard_hold(duration: float) -> void:
+	if opponent_stamina != null and opponent_stamina.current_stamina <= 0.0:
+		return
 	opponent_action_state.set_guard_held(true)
 	_guard_hold_remaining = duration
 
@@ -1145,6 +1221,14 @@ func _tick_guard_hold(delta: float) -> void:
 		_guard_hold_remaining = -1.0
 		if opponent_action_state != null and opponent_action_state.is_guarding():
 			opponent_action_state.set_guard_held(false)
+
+
+func _scaled_chance(base: float, multiplier: float) -> float:
+	return MatchSettings.scale_chance(base, multiplier)
+
+
+func _proactive_action_chance() -> float:
+	return _scaled_chance(proactive_guard_chance, MatchSettings.offense_frequency_multiplier())
 
 
 func _roll_proactive_timer() -> void:
@@ -1178,7 +1262,7 @@ func _consider_proactive_defense() -> void:
 		return
 	if opponent_attack_state != null and not opponent_attack_state.is_ready_for_command():
 		return
-	if _unit_roll() > proactive_guard_chance:
+	if _unit_roll() > _proactive_action_chance():
 		return
 	if _unit_roll() < proactive_guard_weight:
 		var hold := _unit_roll_range(proactive_guard_hold_min, proactive_guard_hold_max)

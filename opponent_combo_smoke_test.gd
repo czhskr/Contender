@@ -142,11 +142,11 @@ func _check_retaliation(failures: Array[String]) -> void:
 	var ai := _make(100.0, 1.0, 0.0)
 	ai._offense_cooldown = 100.0
 	ai._on_player_attack_resolved(0, 0.0, 0.0, false, 1)
-	if not ai._retaliation_pending or not is_equal_approx(ai._retaliation_chance, 0.70):
-		failures.append("block should arm a 70 percent retaliation")
+	if not ai._retaliation_pending or not is_equal_approx(ai._retaliation_chance, 0.45):
+		failures.append("block should arm a 45 percent retaliation")
 	ai._on_player_attack_resolved(0, 0.0, 0.0, false, 2)
-	if ai.debug_retaliation_armed != 2 or not is_equal_approx(ai._retaliation_chance, 0.90):
-		failures.append("evade should refresh retaliation to 90 percent without stacking")
+	if ai.debug_retaliation_armed != 2 or not is_equal_approx(ai._retaliation_chance, 0.60):
+		failures.append("evade should refresh retaliation to 60 percent without stacking")
 	ai.retaliation_evade_chance = 1.0
 	ai._retaliation_chance = 1.0
 	ai.difficulty.aggression = 0.0
@@ -180,7 +180,10 @@ func _check_same_hand(failures: Array[String]) -> void:
 
 func _check_stamina(failures: Array[String]) -> void:
 	var ai := _make(4.0, 0.0, 1.0)
-	_drive(ai, 1.0)
+	if not ai._start_new_attack():
+		failures.append("one affordable punch should still start a combo")
+		return
+	_drive(ai, 1.5)
 	if ai.debug_stamina_cancels < 1:
 		failures.append("low stamina should cancel the follow-up")
 	if ai.opponent_stamina.current_stamina < 0.0:

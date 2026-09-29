@@ -4,6 +4,7 @@ extends Node
 signal attack_requested(attack: AttackType)
 signal evade_pressed(direction: int) ## Explicit press (not OS key-repeat).
 signal evade_hold_changed(direction: int) ## Held movement direction (NONE when released).
+signal evade_released(direction: int) ## Physical key released. Used to clear a HIT movement lock.
 signal guard_changed(is_guarding: bool)
 
 enum AttackType {
@@ -97,6 +98,7 @@ func _on_evade_pressed(direction: int) -> void:
 func _on_evade_released(direction: int) -> void:
 	_held_stack.erase(direction)
 	_emit_hold()
+	evade_released.emit(direction)
 	_consume_event()
 
 

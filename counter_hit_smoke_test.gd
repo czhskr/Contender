@@ -20,10 +20,10 @@ func _initialize() -> void:
 		failures.append("A block is not a counter hit")
 	var meter := MeterType.new()
 	meter.max_meter = 300.0
-	meter.current_meter = 290.0
+	meter.current_meter = 10.0
 	meter.apply_knockdown_damage(counter)
-	if not meter.is_full():
-		failures.append("A counter hit must still be able to fill the KD meter")
+	if not meter.is_knockdown_threshold():
+		failures.append("A counter hit must still be able to empty the KD meter")
 	if failures.is_empty():
 		print("SMOKE PASS: counter hit")
 		quit(0)

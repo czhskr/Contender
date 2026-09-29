@@ -53,6 +53,9 @@ func set_guard_held(is_held: bool) -> void:
 			_guard_held = false
 		return
 
+	if is_held and _new_actions_locked():
+		return
+
 	_guard_held = is_held
 
 	if is_held and current_state == PlayerState.IDLE:
@@ -105,3 +108,10 @@ func _enter_state(next_state: PlayerState) -> void:
 			"[PlayerState] %s -> %s"
 			% [STATE_NAMES[previous_state], STATE_NAMES[current_state]]
 		)
+
+
+func _new_actions_locked() -> bool:
+	if not is_inside_tree():
+		return false
+	var knockdown = get_node_or_null("../KnockdownManager")
+	return knockdown != null and knockdown.has_method("new_actions_locked") and knockdown.new_actions_locked()

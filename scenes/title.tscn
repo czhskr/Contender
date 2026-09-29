@@ -1,35 +1,13 @@
 [gd_scene format=3 uid="uid://d4faovmx8iau1"]
 
-[node name="title" type="Control" unique_id=143028989]
-layout_mode = 3
-anchors_preset = 0
-offset_right = 40.0
-offset_bottom = 40.0
+[ext_resource type="Script" uid="uid://cqecdw4rcelfe" path="res://scripts/title_menu.gd" id="1_title"]
 
-[node name="Background" type="ColorRect" parent="." unique_id=1130363291]
-layout_mode = 1
+[node name="Title" type="Control" unique_id=1749345510]
+layout_mode = 3
 anchors_preset = 15
 anchor_right = 1.0
 anchor_bottom = 1.0
 grow_horizontal = 2
 grow_vertical = 2
-
-[node name="TitleLabel" type="Label" parent="." unique_id=1683219994]
-layout_mode = 0
-offset_right = 40.0
-offset_bottom = 23.0
-
-[node name="StartButton" type="Button" parent="." unique_id=59238368]
-layout_mode = 0
-offset_right = 8.0
-offset_bottom = 8.0
-
-[node name="DifficultyButton" type="Button" parent="." unique_id=1822279131]
-layout_mode = 0
-offset_right = 8.0
-offset_bottom = 8.0
-
-[node name="ControlsButton" type="Button" parent="." unique_id=408225011]
-layout_mode = 0
-offset_right = 8.0
-offset_bottom = 8.0
+mouse_filter = 2
+script = ExtResource("1_title")

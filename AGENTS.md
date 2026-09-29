@@ -55,13 +55,13 @@
 - **Movement**: A/S/D hold → small POV target offset + World parallax. Recovery / post-lock **없음**. Player POV와 World weaving은 **SmoothDamp**. Opponent Down Nstance lowering만 **`move_toward`**.
   - Player POV LEFT/RIGHT/DOWN `(0, +10)` / release → CENTER. **Player X = 0** (full-frame clipping 방지).
   - LEFT↔RIGHT: World shared head-motion SmoothDamp + position-based weave dip. Presentation only.
-  - Horizontal World: Crowd **30** / Ring **65** / Opponent **130**.
+  - Horizontal World: Crowd **80** / Ring **160** / Opponent **280**.
 - **Timing Window**: 유효 press 시 `evade_window = 0.18`, `evade_retrigger_interval = 0.12`. **Stamina 소모 없음.**
 - Stamina 부족이어도 **Movement는 허용**, Window만 거부
 - Hold 중 자동 재발동 없음. OS key-repeat 무시
 - Attack Startup/Active: Gameplay Evade 금지. Recovery `attack_to_evade = 0.35` 이후 cancel 가능
 - Same hand (Left Straight/Hook, Right Straight/Hook)는 Recovery 100%와 손 재사용 간격(기본 0.45초, 공격 시작부터)을 둘 다 채워야 한다. LEFT와 RIGHT 타이머는 따로다. Opposite hand는 `attack_to_attack` 0.50 캔슬만 쓰고, 전역 쿨다운은 없다. Pressure Fighter는 같은 손 재사용 간격을 줄이지 않는다.
-- LEFT/RIGHT Continuous Evade는 정착 시 DOWN과 같은 머리 높이다. 좌우는 사선 아래로 보인다. 가로는 Crowd 30 / Ring 65 / Opponent 130, 세로는 DOWN과 같은 Crowd 10 / Ring 22 / Opponent 40이다.
+- LEFT/RIGHT Continuous Evade는 정착 시 DOWN과 같은 머리 높이다. 좌우는 사선 아래로 보인다. 가로는 Crowd 80 / Ring 160 / Opponent 280, 세로는 DOWN과 같은 Crowd 10 / Ring 22 / Opponent 40이다.
 - High Guard와 Continuous Evade는 같이 켜진다. Evade를 시작해도 Guard는 풀리지 않는다. Guard가 켜져 있으면 `p.highguard.png`, Guard만 놓으면 Evade가 남아 있어도 `p.Nstance.png`다. 판정은 EVADE, 그다음 BLOCK, 그다음 HIT다. 같이 켜도 스태미나는 쓰지 않는다.
 - 일반 HIT는 어느 쪽 공격도 멈추지 않는다. KD, 통계, 압박, 피격 연출은 들어간다. 행동 정지는 Knockdown과 Finisher Freeze뿐이다. 한 공격 token은 HIT/BLOCK/EVADE를 한 번만 resolve한다. Pressure Fighter는 반대 손 연계만 빠르게 한다.
 - Evade → Attack / Guard: slip recovery 없이 즉시 가능 (Attack 시작 시 window end + POV CENTER)
@@ -85,9 +85,10 @@ AI의 `"NONE"`은 방어를 선택하지 않은 **decision 결과 문자열**이
 
 ### 3.1 Stamina (행동 자원)
 
-- **공격 시작 시에만** 소모 (`stamina_cost`). Evade / Guard / Movement / 피격은 소모하지 않는다.
+- **공격 시작 시에만** 공격 스태미나가 줄어든다 (`stamina_cost` 4 / 5 / 7 / 8). High Guard를 들고 있는 동안의 소모는 0이다.
 - Visual Movement와 Evade Window는 Stamina와 독립.
-- HIT / BLOCK / EVADE로 **피격 Stamina 감소 없음**.
+- HIT / EVADE는 방어자의 스태미나를 줄이지 않는다. BLOCK으로 확정된 공격만 방어자 스태미나를 줄인다. 왼 스트레이트 8, 오른 스트레이트 10, 왼 훅 14, 오른 훅 16. 이전 값은 16 / 20 / 28 / 32였다.
+- BLOCK KD 배율은 **0.25**다. Iron Guard의 BLOCK KD는 0이다. 스태미나가 그 BLOCK으로 0이 되면 기존처럼 가드가 내려가고, 그 누름이 떨어지기 전에는 다시 올라가지 않는다. 회피 동작 잠금은 없다.
 - 피격으로 **regen delay reset 없음**.
 - 자연 회복·반복 공격 fatigue·Round Break `+25` 유지.
 - **Low Stamina는 행동 속도를 늦추지 않는다.** Startup / Active / Recovery는 Stamina와 무관.
@@ -182,14 +183,25 @@ Random KO roll / Just / Counter / Head-Body KO 경로 **없음**.
 
 ---
 
+## Round intro
+
+Every actual round, including round 2, round 3, and a Double KO rematch, opens with a Round Intro of about 2.75 seconds. The round clock stays at 60 until that intro finishes. Player input, the opponent AI, and stamina regen stay off, and intro input is discarded. ROUND and FIGHT are presentation only. Knockdown count timing stays on the knockdown manager; the number animation does not drive the count. Page wipe and round intro are separate. Difficulty, traits, and combat numbers are unchanged. The match HUD stays top-center. Opponent HUD stays top-left and player HUD bottom-right. Release HUD does not show numeric stamina or KD.
+
 ## 6. Opponent AI
 
 스크립트: `scripts/opponent_ai.gd`  
-Opponent AI is locked to the former Normal baseline in `opponent_difficulty_settings.gd`. Easy/Hard resources are removed. Reflex and Pressure Fighter change timing only while those traits are active (`effective = base × modifier`).
+Opponent AI is locked to a softened Normal baseline. Easy, Normal, and Hard change only how often and how quickly the AI decides. They do not change damage, stamina, or punch timing. `MatchSettings.difficulty` is the source of truth and applies in both NORMAL and TRAIT matches. Reflex and Pressure Fighter still change timing only while those traits are active.
 
-| Field | Baseline |
+`final_reaction = base × player_stamina × trait × difficulty_reaction`, then the existing 0.01 second minimum. Difficulty scales are reaction 1.25 / 1.00 / 0.75, defense chance 0.80 / 1.00 / 1.25, offense frequency 0.75 / 1.00 / 1.50, retaliation 0.75 / 1.00 / 1.50. Chances clamp to 0–1. Guard/Slip choice stays 45/55. NORMAL multipliers stay 1.00.
+
+| Field | Normal baseline |
 |---|---|
-| reaction_delay | 0.16 |
+| reaction_delay | 0.234 |
+| pressure defense | 0.60 / 0.68 / 0.76 |
+| pressure reaction | 0.104 / 0.065 / 0.039 |
+| proactive interval | 0.55–1.05 |
+| proactive action | 0.32 |
+| retaliation | block 0.45 / evade 0.60 |
 | mistake_chance | 0.20 |
 | aggression | 0.62 |
 | attack_interval | 0.10–0.30 |
@@ -206,14 +218,16 @@ Opponent AI is locked to the former Normal baseline in `opponent_difficulty_sett
 - `OpponentAttackState.attack_cooldown` 기본 **0.0**.
 - Offense pacing: Recovery가 끝나면 다음 판단을 바로 한다. 공격을 하지 않기로 한 경우에만 `attack_interval` 0.10–0.30을 쉰다.
 - **Combo**: 첫 펀치에서 단발 40% / 2타 40% / 3타 20%. 후속타마다 반대손 70% / 같은 손 30%를 다시 고른다. 같은 손은 Recovery가 끝나고 시작 간격 0.45초가 지나야 한다. 아직 불가능하면 반대손으로 바꾸지 않고 기다리거나 콤보를 끝낸다. 각 후속타는 새 attack token이며 스태미나를 따로 쓴다.
-- Block 70% / Evade 90%는 다음 공격 판단 한 번에서만 공격 가능성을 올린다. 그 우선 시간은 Block 0.20초, Evade 0.35초이고, 방금 들어간 가드나 슬립이 끝나기 전에는 줄지 않는다. 이미 Active인 플레이어 펀치는 이 시간보다 방어가 먼저다. 피해나 속도는 변하지 않는다.
+- Block 45% / Evade 60%는 다음 공격 판단 한 번에서만 공격 가능성을 올린다. 그 우선 시간은 Block 0.20초, Evade 0.35초이고, 방금 들어간 가드나 슬립이 끝나기 전에는 줄지 않는다. 이미 Active인 플레이어 펀치는 이 시간보다 방어가 먼저다. 피해나 속도는 변하지 않는다.
 - `reaction_delay`: 플레이어 공격 Startup 이후 방어 반응 지연.
 - `mistake_chance` / `aggression` / `low_stamina_threshold` + `low_stamina_wait_chance` 유지.
 - **`counter_chance` 필드 없음** (삭제됨). `hook_weight`는 리소스에 남아 있으나 AI가 Hook을 고르지 않음.
 
-Easy / Hard 난이도 리소스는 제거되었다. 위 baseline이 유일한 AI 기본값이다.
+Easy / Hard 리소스는 부활시키지 않는다. 난이도는 `MatchSettings`의 배율 네 개만 사용한다.
 
-Opponent는 플레이어가 공격하지 않아도 0.65–1.35초마다 선제 방어를 본다. 그 판단의 35%만 행동하고, 그중 75%는 High Guard(0.55–0.90초), 25%는 좌우 Slip이다. 판단은 자주 해도 매번 행동이 나오지는 않는다. 공격 중이나 가드 중에 타이머가 끝났다면 전체 간격을 다시 시작하지 않고, 행동이 끝나면 바로 다음 판단으로 돌아간다. 일반 HIT는 공격, 콤보, AI 판단을 멈추지 않는다. KD와 피격 연출은 그대로다. 클린 HIT 뒤의 압박 방어는 경직 종료를 기다리지 않고, 그 판정이 끝난 뒤 행동할 수 있을 때 예약된다. Opponent는 Recovery 뒤에 0.10~0.30초를 더 기다리지 않는다. 좌우 스트레이트는 Player와 Opponent가 같은 시간이다. 왼쪽 0.10/0.08/0.11, 오른쪽 0.14/0.09/0.14. Startup 또는 Active 중 맞는 클린 HIT만 받은 KD에 ×1.50이 더해진다. Recovery와 Idle은 일반 HIT다. 공격 pattern은 단발 30%, 빠른 2타 30%, 3타 20%, 0.15~0.30초를 둔 2타 20%다. 선제 방어 간격은 0.50~1.00초, 행동 확률 45%, 가드 65% / 슬립 35%다. 막기 70%, 피하기 90%는 다음 공격 판단 한 번만 공격 쪽으로 기울인다. 판단은 일부러 불완전하고, 전투 규칙만 같다. 클린 HIT마다 압박 방어 기회는 한 번이고, 그 예약은 일반 공격 결정보다 먼저다. 1타는 방어 85% / 반응 0.06초, 2타는 95% / 0.03초, 3타부터는 100% / 0.01초다. 이 압박 방어는 가드 45%, 슬립 55%다. 100%는 같은 압박에서 3타 이상을 이미 맞은 다음 기회에만 적용된다. 플레이어 스태미나는 방어 확률이 아니라 반응 시간만 바꾼다. 100%는 ×1.00, 75%는 ×0.90, 50%는 ×0.75, 25%는 ×0.55, 0%는 ×0.40이고 사이는 선형이다. 최종 반응은 base × stamina × trait이며 최소 0.01초다. 플레이어 공격 동작 시간은 느려지지 않는다. 이미 예약된 방어는 플레이어 Active 직전에 따라잡는다. 압박 가드 유지는 0.45초다. Reflex는 이 반응 시간만 절반으로 줄인다.
+Opponent는 플레이어가 공격하지 않아도 0.55–1.05초마다 선제 방어를 본다. 그 판단의 32%만 행동하고, 그중 65%는 High Guard(0.55–0.90초), 35%는 좌우 Slip이다. 판단은 자주 해도 매번 행동이 나오지는 않는다. 공격 중이나 가드 중에 타이머가 끝났다면 전체 간격을 다시 시작하지 않고, 행동이 끝나면 바로 다음 판단으로 돌아간다. 일반 HIT는 공격, 콤보, AI 판단을 멈추지 않는다. KD와 피격 연출은 그대로다. 클린 HIT 뒤의 압박 방어는 경직 종료를 기다리지 않고, 그 판정이 끝난 뒤 행동할 수 있을 때 예약된다. Opponent는 Recovery 뒤에 0.10~0.30초를 더 기다리지 않는다. 좌우 스트레이트는 Player와 Opponent가 같은 시간이다. 왼쪽 0.10/0.08/0.11, 오른쪽 0.14/0.09/0.14. Startup 또는 Active 중 맞는 클린 HIT만 받은 KD에 ×1.50이 더해진다. Recovery와 Idle은 일반 HIT다. 공격 pattern은 단발 30%, 빠른 2타 30%, 3타 20%, 0.15~0.30초를 둔 2타 20%다. 선제 방어 간격은 0.55~1.05초, 행동 확률 32%, 가드 65% / 슬립 35%다. 막기 45%, 피하기 60%는 다음 공격 판단 한 번만 공격 쪽으로 기울인다. 판단은 일부러 불완전하고, 전투 규칙만 같다. 클린 HIT마다 압박 방어 기회는 한 번이고, 그 예약은 일반 공격 결정보다 먼저다. 1타는 방어 60% / 반응 0.104초, 2타는 68% / 0.065초, 3타부터는 76% / 0.039초다. 이 압박 방어는 가드 45%, 슬립 55%다. 플레이어 스태미나는 방어 확률이 아니라 반응 시간만 바꾼다. 100%는 ×1.00, 75%는 ×0.90, 50%는 ×0.75, 25%는 ×0.55, 0%는 ×0.40이고 사이는 선형이다. 최종 반응은 base × stamina × trait × difficulty이며 최소 0.01초다. 플레이어 공격 동작 시간은 느려지지 않는다. 이미 예약된 방어는 플레이어 Active 직전에 따라잡는다. 압박 가드 유지는 0.45초다. Reflex는 이 반응 시간만 절반으로 줄인다.
+
+선제공격은 상대 스태미나 비율로 조절한다. 70% 이상이면 기존 공격 확률과 공격 간격을 그대로 쓴다. 그보다 낮으면 선제공격 확률이 줄고 다음 공격까지의 간격이 길어진다. 패턴 가중치는 단발로 기운다. 스태미나로 공격을 완전히 막는 기준은 없다. 방어 반응, 압박 방어, 반격 확률은 스태미나 보존 중에도 그대로이고, 비용을 낼 수 없는 공격만 기존처럼 거절된다. 난이도 배율과 특성 배율은 이 조절과 따로 합성된다. 공격 비용, 회복 속도, 피해, Recovery 공식은 바꾸지 않는다. 결정 시점 로그는 `[AI_STAMINA]`다.
 
 ---
 
@@ -221,12 +235,15 @@ Opponent는 플레이어가 공격하지 않아도 0.65–1.35초마다 선제 �
 
 - `KnockdownManager`: Fighting → Player/Opponent Down → Count → Recover 또는 Final KO.
 - Recovery는 **다운 시 1회 roll** (`RecoveryChanceSettings`), 카운트마다 재roll 하지 않음.
-- 성공 기립: **KD = max × 0.50** (300 기준 150), Stamina **+15**.
+- 성공 기립: **KD = max × 0.50** (300 기준 150), Stamina **+15**. 기립 직후 `RESUME_DELAY` **2.0초** 동안 양쪽 입력, AI, 스태미나 회복, 라운드 타이머가 멈춘다. 그 2.0초의 마지막 구간은 FIGHT와 같은 슬랩으로 `BEGIN`을 보여 주고, 그 연출이 끝난 뒤에 양쪽이 동시에 Fighting으로 돌아간다. FIGHT는 라운드 시작, BEGIN은 다운 후 재개다. 카운트 10 실패와 Double KO에는 이 대기와 BEGIN이 없다.
 - Count 중 KD Meter 변화 없음. Final KO 후 Round Break KD 회복 적용 안 함.
 - Round timer는 knockdown 중 pause (`RoundManager` ↔ `KnockdownManager`).
 
 Recovery 리소스: `data/ko/player_recovery_chance.tres`, `opponent_recovery_chance.tres`  
-(기본값: max 0.85 / min 0.05 / exponent 1.25 / stand-up count 1–9 / stamina +15).
+(곡선: max 0.60 / min 0.10 / exponent 1.32 / stand-up count 3–9 / stand exponent 0.80 / stamina +15).  
+기립 확률은 `lerp(min, max, (stamina/100)^1.32)`이다. 대략 0=10%, 10=12%, 25=18%, 50=30%, 75=44%, 100=60%이다. 성공 기립 카운트는 대략 100=3, 75=4, 50=6, 25=7, 10=8, 0=9이다. +0.10 가산은 없다. KD 횟수, 난이도, 특성은 이 확률을 바꾸지 않는다. Player와 Opponent가 같은 곡선을 쓴다.
+
+Title logo intro keeps its reveal, fade, and move speeds. The large center logo is held until 1.80 seconds, then moves for 0.52 seconds and lands at 2.32 seconds. The menu follows at 2.66 seconds and the intro unlocks at about 3.00 seconds. The tutorial panel keeps the controls slab at (620, 186). A slanted tip bar is shown only while that panel is open, at screen (40, 560), 1072×64. Its lines live in `tips`, and the page label is `index + 1 / tips.size()`. After a finished match, KNOCKOUT or DECISION plays out and the existing page wipe opens `scenes/result.tscn`. That screen reuses `assets/title/title_background.png` and only displays the published `MatchResultData`. FIGHT starts a round. BEGIN resumes after a knockdown. Double KO stays a rematch and does not open the result screen.
 
 ---
 
@@ -240,7 +257,13 @@ KD meter maximum is **300**. Standing up sets the meter to 50% of that maximum (
 
 Every new round resets gameplay and visuals together. OpponentVisual must not keep a Knockdown, Down, or Final KO pose into the next round. When the new round is fighting, the AI state and the sprite have to match. A callback left over from the previous round must not put the down pose back.
 
-Each round, Player and Opponent each draw exactly one Fighter Trait. They may draw the same trait. Effects are applied live and never written back onto base values. The trait card shows both sides before the clock starts.
+Each match is either **NORMAL** or **TRAIT**. `GameMode` (`scripts/game_mode.gd`, scene node `GameMode`) is the only source of that choice, and it stays the same for the whole match.
+
+NORMAL draws no traits, shows no trait card, and applies no trait modifiers. It is the combat baseline.
+
+TRAIT gives each fighter one trait per round from the traits that fighter can actually use. The same eligible trait may be drawn by both sides. A new round rerolls both. A Double KO void rematch rerolls again in TRAIT and stays trait-free in NORMAL. Effects are applied live and never written back onto base values. The trait card shows both sides before the clock starts.
+
+Opponent AI throws straights only, so `can_use_hook` is false. Player eligibility is 12/12. Opponent eligibility is 10/12. Power Hooks and Sharp Straight are excluded from the Opponent because neither trait's hook effect can function without a hook attack. Both remain available to the Player.
 
 | 항목 | 기본 |
 |---|---|
@@ -323,10 +346,10 @@ Screen shake / POV / parallax가 HUD·KD·Stamina 바를 흔들지 않게 하기
 
 - Shared head-motion: `_head_lateral` / `_head_down` SmoothDamp (velocity continuity, no segment restart).
 - LEFT → World **+X** / RIGHT → World **-X** / DOWN → World **-Y**.
-- Horizontal: Crowd **30** / Ring **65** / Opponent **130**.
+- Horizontal: Crowd **80** / Ring **160** / Opponent **280**.
 - Down Y: Crowd **10** / Ring **22** / Opponent **40**.
 - LEFT↔RIGHT weave: position-based `(1-|lat|)^2 * blend` dip (−Y). Opp **45** / Ring **22** / Crowd **10**.
-- DOWN successful pass-by: **`(0, -40)`** (40px upward). LEFT/RIGHT pass-by X **±130**. Stack ≤ ~80.
+- DOWN successful pass-by: **`(0, -40)`** (40px upward). LEFT/RIGHT pass-by X **±40**. Stack ≤ ~80.
 - Opponent는 `parallax_offset` additive.
 - Opponent는 `parallax_offset` additive. `asset_base_position.y`는 `max(DOWN 40, weave 45) + pass-by 40` = **85**라서, 최대 DOWN에서 캔버스 하단이 viewport 바닥(648)에 맞는다. CENTER에서는 그 85px만큼 아래에 있다. Scale은 contain **0.6328125** 유지. BottomBleed 없음.
 
@@ -334,8 +357,8 @@ Screen shake / POV / parallax가 HUD·KD·Stamina 바를 흔들지 않게 하기
 
 - Parallax amplitude는 줄이지 않는다. Crowd/Ring만 viewport + motion bleed를 uniform scale로 덮는다.
 - Bleed (한쪽, CombatVisualRoot가 계산 후 safety **4px** 추가):
-  - Crowd H **30+4**, V **10 + weave 10 + 4**
-  - Ring H **65+4**, V **22 + weave 22 + 4**
+  - Crowd H **80+4**, V **10 + weave 10 + 4**
+  - Ring H **160+4**, V **22 + weave 22 + 4**
 - Scale은 기존 cover의 **시각 중심** 기준. Bottom anchor를 추가 높이의 절반만큼 내려 framing center를 유지한다.
 - Player scale **0.75**와 Opponent contain scale은 overscan 대상이 아니다.
 
@@ -350,9 +373,18 @@ Screen shake / POV / parallax가 HUD·KD·Stamina 바를 흔들지 않게 하기
 
 ### Hit Shake (`CombatVisualRoot`만)
 
-- Opponent HIT(플레이어가 때림): strength **3** / **0.10s**.
-- Player HIT(플레이어가 맞음): strength **7** / **0.15s**.
-- BLOCK / EVADE: shake 없음.
+Shake는 `base_position + shake_offset` 이고, 끝나면 offset은 0이다. Duration과 5-step decay는 그대로다.
+
+`MatchSettings.screen_shake`는 0 OFF / 1 NORMAL / 2 STRONG. 배율은 **0 / 1.0 / 1.5**. OFF는 magnitude 0이라 tween을 만들지 않는다. Title과 Result에는 이 shake가 없다.
+
+Base magnitude (NORMAL):
+
+- Opponent clean HIT(플레이어가 때림): strength **5** / **0.10s**.
+- Player clean HIT(플레이어가 맞음): strength **12** / **0.15s**.
+- High Guard BLOCK은 같은 쪽 clean HIT의 **0.65**. Opponent BLOCK **3.25** / 0.10s, Player BLOCK **7.8** / 0.15s. 가드를 들고만 있으면 흔들리지 않는다. 한 attack token의 resolve 신호당 한 번.
+- EVADE: shake 없음.
+- STRONG은 위 값의 **1.5** (Player HIT **18**, Opponent HIT **7.5**).
+- Counter 전용 screen shake는 없다. Knockdown sprite jolt(Opponent 10 / Player 6)은 screen shake가 아니다.
 - **Finisher HIT**(결정타): 일반 HIT와 동일하게 짧은 impact shake → Freeze 중에는 shake 정지 → Knockdown 진입 시 clear.
 - Knockdown 상태 진입 시 shake clear.
 
@@ -485,6 +517,8 @@ godot --headless --path . -s res://visual_motion_smoke_test.gd
 godot --headless --path . -s res://action_buffer_smoke_test.gd
 godot --headless --path . -s res://continuous_evade_smoke_test.gd
 godot --headless --path . -s res://finisher_impact_freeze_smoke_test.gd
+godot --headless --path . -s res://screen_shake_smoke_test.gd
+godot --headless --path . -s res://audio_smoke_test.gd
 godot --headless --path . --quit-after 2
 ```
 
@@ -560,6 +594,55 @@ godot --headless --path . --quit-after 2
 | Opponent Hook `.tres` | 데이터만 존재, AI 미사용 — 삭제 필수는 아님 |
 | Git | `main` clean / origin 동기화 (`73aa87a` 기준; 이후 로컬 문서 수정은 커밋 전 확인) |
 | 스모크 | 로컬에서 PASS 이력 있음. 새 환경에서는 Godot 4.7.2로 재실행 권장 |
+
+---
+
+## 19. Audio
+
+Audio는 gameplay timer를 바꾸지 않는다. `AudioDirector` autoload가 기존 신호만 구독한다. Bus는 Master 아래 `BGM`, `SFX`, `Voice`다. BGM slider는 BGM bus, SFX slider는 SFX bus와 Voice bus다. 0은 mute이고 `linear_to_db(0)`은 호출하지 않는다. 값은 `MatchSettings.bgm_volume` / `sfx_volume` 0~1이고 장면이 바뀌어도 유지된다. 재생 중에도 다음 프레임에 bus로 반영된다.
+
+Player는 BGM, crowd loop, round-intro crowd, cheer, crowd count, voice, count voice, knockdown SFX, SFX pool 4개로 나뉜다. 서로 다른 층은 한 player를 공유하지 않는다.
+
+| 파일 | Bus | Loop | Trigger |
+|---|---|---|---|
+| `bgm/bgm_title.mp3` | BGM | OFF | Title scene 진입 즉시 한 번. Logo intro가 끝나는 신호를 기다리지 않는다. Title을 나가면 정지한다. |
+| `bgm/bgm_result.mp3` | BGM | OFF | Result scene 진입. 들어가자마자 재생하고, Result를 나가면 정지한다. Final match cheer와 잠시 겹칠 수 있다. |
+| `ambience/ambience_crowd_loop.mp3` | BGM | ON | Match가 trait preview, round intro, 또는 fighting으로 들어가면 한 번 시작한다. 추가 crowd가 loop를 끊지 않는다. |
+| `ambience/ambience_crowd_round_intro.mp3` | BGM | OFF | `RoundState.ROUND_INTRO` |
+| `ambience/ambience_crowd_count.mp3` | BGM | 파일 길이가 12초보다 짧으면 count 동안만 ON | Down state 시작. Recovery, Final KO, Double KO, match scene exit에서 즉시 stop. |
+| `ambience/ambience_crowd_cheer.mp3` | BGM | OFF | Down/Count 시작, recovery, Final KO. 효과음 finished를 기다리지 않는다. Final KO cheer만 Result로 넘어가 파일 끝까지 재생된다. |
+| `sfx/sfx_hit_01.mp3`, `sfx_hit_02.mp3` | SFX | OFF | HIT resolution 한 번당 둘 중 하나를 고른다. Player와 Opponent 동일. Counter도 이 pool이다. |
+| `sfx/sfx_block.mp3` | SFX | OFF | BLOCK resolution. Guard hold와 EVADE에는 없다. |
+| `sfx/sfx_knockdown.mp3` | SFX | OFF | `knockdown_confirmed`. Trade가 단일/더블 다운을 확정한 순간 한 번이며, Finisher Freeze가 끝난 Down state가 아니다. |
+| `sfx/sfx_round_bell.mp3` | SFX | OFF | FIGHT presentation 시작. |
+| `voice/voice_fight.mp3` | Voice | OFF | FIGHT presentation 시작. |
+| `voice/voice_begin.mp3` | Voice | OFF | BEGIN presentation 시작. |
+| `voice/voice_ko.mp3` | Voice | OFF | `match_finished`. Double KO `round_voided`에는 없다. |
+| `voice/voice_count_01.mp3` … `10` | Voice | OFF | `count_changed`의 숫자와 같은 파일. Count timer는 KnockdownManager다. |
+
+Count voice와 FIGHT/BEGIN/KO voice는 player가 나뉘어 count 10과 KO가 서로를 끊지 않는다. UI hover는 `sfx_ui_button.mp3`를 SFX bus로, 선택이 실제로 바뀔 때만 한 번 재생한다. UI hover, click, EVADE, DECISION, ROUND 전용 음성은 없다.
+
+다운이 확정되면 `sfx_knockdown`이 바로 난다. Crowd cheer는 그 효과음이 끝나길 기다리지 않고, Down/Count가 시작될 때 `crowd_count`와 함께 한 번 시작한다. 기립 cheer와 Final KO cheer는 그대로다. Final KO cheer만 Result까지 이어진다.
+
+Pause는 Match가 진행 중일 때만 열린다. 실제 Fighting에서 멈춘 경우에만 재개 시 3, 2, 1, FIGHT를 보여주고, FIGHT 연출이 끝난 뒤에 경기를 푼다. Round intro, Knockdown count, resume delay, BEGIN, Break에서 재개하면 그 카운트다운 없이 멈춘 지점부터 이어진다. Pause 재개의 FIGHT에는 라운드 벨이 없다. 나가기는 결과를 만들지 않고 Title로 돌아간다.
+
+---
+
+다운이 확정되면 `sfx_knockdown`이 바로 난다. Crowd cheer는 그 효과음이 끝나길 기다리지 않고, Down/Count가 시작될 때 `crowd_count`와 함께 한 번 시작한다. 기립 cheer와 Final KO cheer는 그대로다. Final KO cheer만 Result까지 이어진다. Finisher Freeze는 2.0초로 그대로다.
+
+Match가 KO 또는 Decision으로 확정되면 KNOCKOUT/DECISION 발표를 유지한 채, 확정 시점부터 약 3초 뒤에 Result wipe가 시작된다. 발표 길이를 3초에 더하지 않는다. Recovery resume delay 2초, round break, double KO rematch에는 이 3초가 없다.
+
+Pause Options는 BGM, SFX, 화면 흔들림, 닫기만 보여 준다. Title Options의 난이도는 그대로다.
+
+TRAIT 라운드와 Double KO 재추첨은 Round Intro 전에 Trait Reveal을 보여 준다. 카드는 300×156 기울어진 슬랩으로, 상대는 (64, 176), 플레이어는 (788, 176)에 놓인다. 각 카드는 한국어 이름과 짧은 효과 두 줄만 보여 준다. `계속하기`는 (436, 392), 280×58이다. 전투 HUD는 TRAIT일 때만 그 한국어 이름을 바 옆 보조 줄에 보여 준다. 영어 이름, 이점/약점, +/- 는 보여 주지 않는다. 특성 효과 수치는 바꾸지 않는다.
+
+커서는 `CursorPolicy` 한 곳에서만 켠다. Title, Trait Reveal, Pause, Result는 visible이다. Round Intro, Fighting, Knockdown, Count, Resume Delay, BEGIN, Pause 재개 카운트, Break는 hidden이다.
+
+결정타가 확정되면 같은 순간에 Finisher Freeze가 시작되고, 그 프레임의 공격/피격 pose를 2.0초 동안 유지한다. 흰 플래시는 약 0.12초, peak alpha 0.82이며 freeze가 끝나기 전에 사라진다.
+
+Low stamina vignette는 스태미나 비율로만 강해진다. 50% 초과는 없고, 0%에서 가장 진하다. 중앙은 비우고 Exhausted 규칙은 바꾸지 않는다.
+
+Final KO cheer는 Result scene에서도 끝까지 재생되고 `bgm_result`와 겹칠 수 있다. Crowd loop, crowd count, combat voice, combat SFX는 Result에서 멈춘다. Retry나 Title로 나가면 남은 cheer도 멈춘다.
 
 ---
 

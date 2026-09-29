@@ -37,7 +37,7 @@ func _run() -> void:
 
 func _check_difficulty_unchanged(failures: Array[String]) -> void:
 	var normal := DifficultyType.new()
-	if not is_equal_approx(normal.reaction_delay, 0.16):
+	if not is_equal_approx(normal.reaction_delay, 0.234):
 		failures.append("Normal reaction_delay changed")
 	if not is_equal_approx(normal.mistake_chance, 0.20):
 		failures.append("Normal mistake_chance changed")
@@ -62,8 +62,8 @@ func _check_reaction_and_decisions(failures: Array[String]) -> void:
 	ai._on_player_attack_state_changed(AttackStateType.AttackState.STARTUP, 0)
 	if not ai._reaction_pending:
 		failures.append("Player startup did not schedule a reaction")
-	if ai._reaction_timer < 0.08 or ai._reaction_timer > 0.24:
-		failures.append("Normal reaction timer left the 0.16±0.08 band")
+	if ai._reaction_timer < 0.154 or ai._reaction_timer > 0.314:
+		failures.append("Normal reaction timer left the 0.234±0.08 band")
 
 	player_attack.current_state = AttackStateType.AttackState.ACTIVE
 	ai.debug_forced_rolls = [0.0, 0.9, 0.0, 0.0]
@@ -141,7 +141,7 @@ func _check_resolver(failures: Array[String]) -> void:
 	action.current_state = ActionType.OpponentState.GUARD
 	offense._resolved_for_current_attack = false
 	offense.resolve_hit_now(0)
-	if not is_equal_approx(meter.current_meter, 2.5):
+	if not is_equal_approx(meter.current_meter, 297.5):
 		failures.append("Guard BLOCK should apply KD x0.25")
 
 	meter.set_meter(0.0)

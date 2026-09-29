@@ -34,6 +34,7 @@ func _run() -> void:
 	_check_low_stamina_movement_only(failures)
 	_check_attack_gates(failures)
 	_check_resolver_evade(failures)
+	_check_hit_breaks_lateral_movement(failures)
 	await _check_guard_stays_with_evade(failures)
 	_check_passby_down(failures)
 	_check_opponent_down_idle(failures)
@@ -73,12 +74,12 @@ func _check_defaults(failures: Array[String]) -> void:
 	if not is_equal_approx(buffer.attack_to_evade, 0.35):
 		failures.append("attack_to_evade expected 0.35")
 	var root := CombatVisualRootType.new()
-	if not is_equal_approx(root.parallax_crowd_x, 30.0):
-		failures.append("parallax_crowd_x != 30")
-	if not is_equal_approx(root.parallax_ring_x, 65.0):
-		failures.append("parallax_ring_x != 65")
-	if not is_equal_approx(root.parallax_opponent_x, 130.0):
-		failures.append("parallax_opponent_x != 130")
+	if not is_equal_approx(root.parallax_crowd_x, 80.0):
+		failures.append("parallax_crowd_x != 80")
+	if not is_equal_approx(root.parallax_ring_x, 160.0):
+		failures.append("parallax_ring_x != 160")
+	if not is_equal_approx(root.parallax_opponent_x, 280.0):
+		failures.append("parallax_opponent_x != 280")
 	if not is_equal_approx(root.parallax_crowd_down_y, 10.0):
 		failures.append("parallax_crowd_down_y != 10")
 	if not is_equal_approx(root.parallax_ring_down_y, 22.0):
@@ -302,6 +303,89 @@ func _check_attack_gates(failures: Array[String]) -> void:
 	evade.queue_free()
 
 
+func _check_hit_breaks_lateral_movement(failures: Array[String]) -> void:
+	for direction in [PlayerEvadeType.Direction.LEFT, PlayerEvadeType.Direction.RIGHT]:
+		var side := "LEFT" if direction == PlayerEvadeType.Direction.LEFT else "RIGHT"
+		var evade := PlayerEvadeType.new()
+		var visual := CombatVisualRootType.new()
+		var opponent := OpponentVisualType.new()
+		opponent._build_nodes()
+		visual.opponent_visual = opponent
+		visual.player_evade = evade
+		root.add_child(visual)
+		evade.set_movement_direction(direction)
+		if not evade.try_begin_window(direction):
+			failures.append("%s window should open" % side)
+		if evade.movement_direction != direction:
+			failures.append("%s EVADE success cleared movement" % side)
+		evade.end_window()
+		visual._head_lateral = 1.0 if direction == PlayerEvadeType.Direction.LEFT else -1.0
+		visual._head_lateral_target = visual._head_lateral
+		visual._head_down = 1.0
+		visual._head_down_target = 1.0
+		opponent.apply_evade_passby_offset(
+			Vector2(40.0 if direction == PlayerEvadeType.Direction.LEFT else -40.0, 0.0)
+		)
+		evade.break_lateral_movement_until_release()
+		visual._on_opponent_attack_resolved(DefenseResolverType.DefenseResult.HIT, 0.0, 0.0, false)
+		if evade.movement_direction != PlayerEvadeType.Direction.NONE:
+			failures.append("%s HIT did not center movement" % side)
+		if visual._head_lateral_target != 0.0 or visual._head_down_target != 0.0:
+			failures.append("%s HIT did not retarget parallax to CENTER" % side)
+		if absf(visual._head_lateral) < 0.5:
+			failures.append("%s HIT snapped parallax instead of damping" % side)
+		if opponent._evade_passby_offset != Vector2.ZERO:
+			failures.append("%s HIT did not clear pass-by" % side)
+		evade.set_movement_direction(direction)
+		if evade.movement_direction != PlayerEvadeType.Direction.NONE:
+			failures.append("%s movement restarted while the key stayed held" % side)
+		evade.notify_direction_released(direction)
+		evade.set_movement_direction(direction)
+		if evade.movement_direction != direction:
+			failures.append("%s did not restart after release" % side)
+		opponent.free()
+		visual.free()
+		evade.free()
+
+	var down := PlayerEvadeType.new()
+	down.set_movement_direction(PlayerEvadeType.Direction.DOWN)
+	down.break_lateral_movement_until_release()
+	if down.movement_direction != PlayerEvadeType.Direction.DOWN:
+		failures.append("HIT broke DOWN movement")
+	down.free()
+
+	var held := PlayerEvadeType.new()
+	held.set_movement_direction(PlayerEvadeType.Direction.LEFT)
+	if held.movement_direction != PlayerEvadeType.Direction.LEFT:
+		failures.append("BLOCK path should leave movement running")
+	held.free()
+
+	var attack := AttackStateType.new()
+	attack.print_action_speed = false
+	attack.current_state = attack.AttackState.ACTIVE
+	var stun := HitStunType.new()
+	var proto = preload("res://scripts/combat_prototype.gd").new()
+	var moving := PlayerEvadeType.new()
+	moving.set_movement_direction(PlayerEvadeType.Direction.RIGHT)
+	proto.player_evade = moving
+	proto.attack_state = attack
+	proto.player_hit_stun = stun
+	proto._apply_player_hit_reaction(false)
+	if attack.current_state != attack.AttackState.ACTIVE:
+		failures.append("HIT cancelled the player attack")
+	if stun.is_hit_stunned():
+		failures.append("HIT created hit stun")
+	if moving.movement_direction != PlayerEvadeType.Direction.NONE:
+		failures.append("HIT reaction did not break RIGHT movement")
+	moving.set_movement_direction(PlayerEvadeType.Direction.RIGHT)
+	if moving.movement_direction != PlayerEvadeType.Direction.NONE:
+		failures.append("RIGHT movement restarted while the key stayed held")
+	attack.free()
+	stun.free()
+	moving.free()
+	proto.free()
+
+
 func _check_resolver_evade(failures: Array[String]) -> void:
 	var stamina := StaminaType.new()
 	stamina._ready()
@@ -332,20 +416,19 @@ func _check_resolver_evade(failures: Array[String]) -> void:
 
 	evade.try_begin_window(PlayerEvadeType.Direction.LEFT)
 	defense.resolve_attack(opp)
-	## Capture last result via signal would be ideal; check meter instead.
-	if meter.current_meter > 0.0:
+	if not is_equal_approx(meter.current_meter, 300.0):
 		failures.append("EVADE window active must deal 0 KD")
 
 	evade.end_window()
 	defense.resolve_attack(opp)
-	if meter.current_meter <= 0.0:
-		failures.append("No evade/guard should HIT and apply KD")
+	if not is_equal_approx(meter.current_meter, 290.0):
+		failures.append("No evade/guard should subtract 10 KD (got %.1f)" % meter.current_meter)
 
-	meter.current_meter = 0.0
+	meter.set_meter(300.0)
 	action.set_guard_held(true)
 	defense.resolve_attack(opp)
-	if not is_equal_approx(meter.current_meter, 2.5):
-		failures.append("BLOCK should apply 0.25 KD mult (got %.2f)" % meter.current_meter)
+	if not is_equal_approx(meter.current_meter, 297.5):
+		failures.append("BLOCK should leave 297.5 KD (got %.2f)" % meter.current_meter)
 
 	stamina.queue_free()
 	hit_stun.queue_free()
@@ -381,6 +464,7 @@ func _check_guard_stays_with_evade(failures: Array[String]) -> void:
 	if action.is_guarding() or not evade.is_window_active():
 		failures.append("Releasing Guard must leave the Evade window running")
 	var meter := KnockdownMeterType.new()
+	meter._ready()
 	var defense := DefenseResolverType.new()
 	defense.player_action_state = action
 	defense.player_evade = evade
@@ -390,18 +474,17 @@ func _check_guard_stays_with_evade(failures: Array[String]) -> void:
 	var opp := OpponentAttackDataType.new()
 	opp.knockdown_damage = 10.0
 	defense.resolve_attack(opp)
-	if meter.current_meter > 0.0:
+	if not is_equal_approx(meter.current_meter, 300.0):
 		failures.append("Active evade window must beat Guard and resolve as EVADE")
 	evade.end_window()
-	meter.current_meter = 0.0
 	defense.resolve_attack(opp)
-	if not is_equal_approx(meter.current_meter, 2.5):
-		failures.append("Expired window with Guard held should BLOCK")
+	if not is_equal_approx(meter.current_meter, 297.5):
+		failures.append("Expired window with Guard held should BLOCK (got %.2f)" % meter.current_meter)
 	action.set_guard_held(false)
-	var before := meter.current_meter
+	var before: float = meter.current_meter
 	defense.resolve_attack(opp)
-	if meter.current_meter <= before:
-		failures.append("No guard and no window should HIT")
+	if meter.current_meter >= before:
+		failures.append("No guard and no window should subtract KD")
 	var visual := PlayerVisualType.new()
 	visual.action_state = action
 	root.add_child(visual)

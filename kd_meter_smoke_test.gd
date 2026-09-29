@@ -36,19 +36,21 @@ func _initialize() -> void:
 func _check_meter(failures: Array[String]) -> void:
 	var meter := KnockdownMeterType.new()
 	root.add_child(meter)
-	if not is_equal_approx(meter.current_meter, 0.0):
-		failures.append("Meter should start at 0")
+	meter._ready()
+	if not is_equal_approx(meter.current_meter, 300.0):
+		failures.append("Meter should start at 300")
 	if not is_equal_approx(meter.max_meter, 300.0):
 		failures.append("Meter max should be 300")
-	meter.apply_knockdown_damage(292.0)
-	if not is_equal_approx(meter.current_meter, 292.0):
+	meter.apply_knockdown_damage(10.0)
+	if not is_equal_approx(meter.current_meter, 290.0):
 		failures.append("Meter apply failed")
+	meter.set_meter(8.0)
 	meter.apply_knockdown_damage(8.0)
-	if not meter.is_full():
-		failures.append("Meter should be full at 300")
+	if not meter.is_knockdown_threshold():
+		failures.append("Meter should knock down at 0")
 	meter.apply_knockdown_damage(50.0)
-	if not is_equal_approx(meter.current_meter, 300.0):
-		failures.append("Meter should clamp at 300")
+	if not is_equal_approx(meter.current_meter, 0.0):
+		failures.append("Meter should clamp at 0")
 	meter.set_meter(50.0)
 	if not is_equal_approx(meter.current_meter, 50.0):
 		failures.append("set_meter 50 failed")
@@ -106,17 +108,18 @@ func _check_hit_block_evade(failures: Array[String]) -> void:
 
 	var meter := KnockdownMeterType.new()
 	root.add_child(meter)
+	meter._ready()
 
 	## HIT: full knockdown_damage
 	var hit_applied: float = meter.apply_knockdown_damage(10.0)
-	if not is_equal_approx(hit_applied, 10.0) or not is_equal_approx(meter.current_meter, 10.0):
+	if not is_equal_approx(hit_applied, 10.0) or not is_equal_approx(meter.current_meter, 290.0):
 		failures.append("HIT should apply full KD damage")
 
 	## BLOCK: KD * 0.25
 	var block_raw := 10.0 * 0.25
 	meter.apply_knockdown_damage(block_raw)
-	if not is_equal_approx(meter.current_meter, 12.5):
-		failures.append("BLOCK should add KD * 0.25")
+	if not is_equal_approx(meter.current_meter, 287.5):
+		failures.append("BLOCK should subtract KD * 0.25")
 
 	## EVADE: no meter change
 	var before_evade := meter.current_meter
@@ -124,13 +127,13 @@ func _check_hit_block_evade(failures: Array[String]) -> void:
 	if not is_equal_approx(evade_applied, 0.0) or not is_equal_approx(meter.current_meter, before_evade):
 		failures.append("EVADE should not change KD meter")
 
-	## 292 + 8 → full at the 300 maximum.
-	meter.set_meter(292.0)
-	var applied_to_full: float = meter.apply_knockdown_damage(8.0)
-	if not meter.is_full() or not is_equal_approx(meter.current_meter, 300.0):
-		failures.append("292 + 8 should fill meter to 300")
-	if not is_equal_approx(applied_to_full, 8.0):
-		failures.append("92 + 8 should apply exactly 8 KD")
+	## 8 - 8 → empty, which is the knockdown threshold.
+	meter.set_meter(8.0)
+	var applied_to_empty: float = meter.apply_knockdown_damage(8.0)
+	if not meter.is_knockdown_threshold() or not is_equal_approx(meter.current_meter, 0.0):
+		failures.append("8 - 8 should empty the meter")
+	if not is_equal_approx(applied_to_empty, 8.0):
+		failures.append("8 - 8 should apply exactly 8 KD")
 
 	meter.queue_free()
 

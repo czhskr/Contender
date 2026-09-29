@@ -11,14 +11,19 @@ config_version=5
 [application]
 
 config/name="Contender"
-run/main_scene="uid://y7u4jdf8usbd"
+run/main_scene="uid://d4faovmx8iau1"
 config/features=PackedStringArray("4.7", "GL Compatibility")
 config/icon="res://icon.svg"
+
+[autoload]
+
+AudioDirector="*res://scripts/audio_director.gd"
 
 [display]
 
 window/stretch/mode="canvas_items"
 window/stretch/aspect="expand"
+mouse_cursor/custom_image="res://assets/cursor/cursor.png"
 
 [input]
 
@@ -76,6 +81,10 @@ debug_force_opponent_knockdown={
 [physics]
 
 3d/physics_engine="Jolt Physics"
+
+[audio]
+
+buses/default_bus_layout="res://default_bus_layout.tres"
 
 [rendering]
 

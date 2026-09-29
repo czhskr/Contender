@@ -5,7 +5,7 @@ extends CanvasLayer
 ## Uses Time.get_ticks_msec; independent of combat freeze / time_scale.
 
 @export_group("Flash")
-@export_range(0.0, 1.0, 0.01) var flash_peak_alpha := 0.35
+@export_range(0.0, 1.0, 0.01) var flash_peak_alpha := 0.82
 @export_range(0.02, 0.5, 0.01, "or_greater") var flash_duration := 0.12
 
 var _flash: ColorRect
@@ -15,7 +15,7 @@ var _token := 0
 
 
 func _ready() -> void:
-	layer = 1
+	layer = 20
 	process_mode = Node.PROCESS_MODE_ALWAYS
 	set_process(false)
 	_build_nodes()

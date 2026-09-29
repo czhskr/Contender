@@ -93,6 +93,8 @@ var _breathing_tween: Tween
 var _knockdown_impact_tween: Tween
 var _breathing_active := false
 var _finisher_freeze := false
+var _finisher_sealed := false
+var _sealed_texture: Texture2D
 var _knockdown_impact_token := 0
 
 
@@ -240,8 +242,11 @@ func set_finisher_freeze(active: bool) -> void:
 	_finisher_freeze = active
 	if active:
 		_stop_breathing()
+		_finisher_sealed = false
+		call_deferred("_seal_finisher_pose")
 		_apply_composed_transform()
 		return
+	_finisher_sealed = false
 
 	## Freeze exit (Player was attacker): release stale attack pose.
 	if was_frozen and not _knocked_down and _priority == Priority.ATTACK:
@@ -362,7 +367,16 @@ func _show_idle() -> void:
 	_start_breathing()
 
 
+func _seal_finisher_pose() -> void:
+	if not _finisher_freeze or _sprite == null:
+		return
+	_finisher_sealed = true
+	_sealed_texture = _sprite.texture
+
+
 func _show_pose(state_name: String, texture_path: String) -> void:
+	if _finisher_freeze and _finisher_sealed:
+		return
 	var texture := TextureResolver.try_load(texture_path)
 	_sprite.texture = texture
 	## Texture swap only — keep origin/scale identical for every pose.

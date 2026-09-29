@@ -78,8 +78,8 @@ func _check_defaults(failures: Array[String]) -> void:
 	finisher.free()
 
 	var fx := EffectType.new()
-	if not is_equal_approx(fx.flash_peak_alpha, 0.35):
-		failures.append("flash_peak_alpha expected 0.35")
+	if not is_equal_approx(fx.flash_peak_alpha, 0.82):
+		failures.append("flash_peak_alpha expected 0.82")
 	if not is_equal_approx(fx.flash_duration, 0.12):
 		failures.append("flash_duration expected 0.12")
 	if "overlay_alpha" in fx:
@@ -208,11 +208,11 @@ func _check_block_evade_no_finisher(failures: Array[String]) -> void:
 	var meter := KnockdownMeterType.new()
 	meter.set_meter(90.0)
 	meter.apply_knockdown_damage(0.0)
-	if meter.is_full():
-		failures.append("EVADE should not fill meter")
+	if meter.is_knockdown_threshold():
+		failures.append("EVADE should not empty the meter")
 	meter.apply_knockdown_damage(8.0 * 0.25)
-	if meter.is_full():
-		failures.append("BLOCK from 90 should not fill meter (×0.25)")
+	if meter.is_knockdown_threshold():
+		failures.append("BLOCK from 90 should not knock down")
 	meter.free()
 
 
@@ -220,8 +220,8 @@ func _check_normal_hit_no_finisher(failures: Array[String]) -> void:
 	var meter := KnockdownMeterType.new()
 	meter.set_meter(50.0)
 	meter.apply_knockdown_damage(8.0)
-	if meter.is_full():
-		failures.append("normal HIT should not fill meter from 50+8")
+	if meter.is_knockdown_threshold():
+		failures.append("normal HIT should not knock down from 50")
 	meter.free()
 
 
@@ -335,7 +335,7 @@ func _check_player_finisher_then_knockdown(failures: Array[String]) -> void:
 					down_while_pending[0] = true
 	)
 
-	ctx.opp_meter.set_meter(ctx.opp_meter.max_meter - 1.0)
+	ctx.opp_meter.set_meter(8.0)
 	var start_ok := [false]
 	ctx.offense.opponent_knockdown.connect(
 		func(_a: int) -> void:

@@ -128,10 +128,10 @@ func _check_meter_and_match(failures: Array[String]) -> void:
 	var meter := MeterType.new()
 	if not is_equal_approx(meter.max_meter, 300.0):
 		failures.append("KD max should be 300")
-	meter.current_meter = 299.0
+	meter.current_meter = 1.0
 	meter.apply_knockdown_damage(1.0)
-	if not meter.is_full():
-		failures.append("300 should knock down")
+	if not meter.is_knockdown_threshold():
+		failures.append("reaching 0 should knock down")
 	var rounds := RoundType.new()
 	if not is_equal_approx(rounds.round_duration, 60.0) or rounds.wins_to_finish != 2:
 		failures.append("Match should be 60s rounds, first to 2")

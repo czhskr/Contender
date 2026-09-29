@@ -43,3 +43,6 @@ enum Id {
 @export var attack_link_threshold := 1.0
 ## Multiplies opponent attack interval and follow-up delay.
 @export var offense_pace := 1.0
+## Eligibility. A fighter without this attack cannot be offered the trait.
+@export var requires_straight_attack := false
+@export var requires_hook_attack := false

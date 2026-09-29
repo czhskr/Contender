@@ -32,6 +32,7 @@ const ATTACK_NAMES := [
 	"Right Hook",
 ]
 const RESULT_NAMES := ["HIT", "BLOCK", "EVADE"]
+const BLOCK_STAMINA_COST_SCALE := 2.0
 
 @export var player_attack_state: AttackStateType
 @export var opponent_action_state: OpponentActionStateType
@@ -110,11 +111,16 @@ func _resolve_hit(attack: int) -> void:
 			result = ResolveResult.BLOCK
 		raw_kd = _final_kd(attack, raw_kd, true, blocked)
 
+	if result == ResolveResult.BLOCK and opponent_stamina != null:
+		opponent_stamina.apply_block_stamina_damage(attack_data.stamina_cost * BLOCK_STAMINA_COST_SCALE)
+		if opponent_stamina.current_stamina <= 0.0 and opponent_action_state != null:
+			opponent_action_state.set_guard_held(false)
+
 	var applied := 0.0
 	var was_knockdown := false
 	if meter_updates_enabled and raw_kd > 0.0:
 		applied = opponent_knockdown_meter.apply_knockdown_damage(raw_kd)
-		if opponent_knockdown_meter.is_full():
+		if opponent_knockdown_meter.is_knockdown_threshold():
 			was_knockdown = true
 			_notify_threshold(false)
 			opponent_knockdown.emit(attack)

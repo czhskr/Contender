@@ -75,8 +75,8 @@ func _check_stamina_unchanged(failures: Array[String]) -> void:
 func _check_only_one_side(failures: Array[String], player_down: bool) -> void:
 	var ctx := _make(false)
 	root.add_child(ctx.root)
-	ctx.player_meter.set_meter(292.0 if player_down else 0.0)
-	ctx.opp_meter.set_meter(0.0 if player_down else 292.0)
+	ctx.player_meter.set_meter(8.0 if player_down else 300.0)
+	ctx.opp_meter.set_meter(300.0 if player_down else 8.0)
 	ctx.kd.queue_recovery_result(KD.DownedSide.PLAYER if player_down else KD.DownedSide.OPPONENT, true, 4)
 	if player_down:
 		ctx.opp_attack.current_state = OppAttack.AttackState.IDLE
@@ -93,7 +93,7 @@ func _check_only_one_side(failures: Array[String], player_down: bool) -> void:
 func _check_phase_excluded(failures: Array[String], phase: int, label: String) -> void:
 	var ctx := _make(false)
 	root.add_child(ctx.root)
-	ctx.opp_meter.set_meter(292.0)
+	ctx.opp_meter.set_meter(8.0)
 	ctx.opp_attack.current_state = phase
 	ctx.player_attack.current_state = PlayerAttack.AttackState.ACTIVE
 	ctx.kd.queue_recovery_result(KD.DownedSide.OPPONENT, true, 3)
@@ -108,8 +108,8 @@ func _check_phase_excluded(failures: Array[String], phase: int, label: String) -
 func _check_active_trade(failures: Array[String], player_first: bool) -> void:
 	var ctx := _make(false)
 	root.add_child(ctx.root)
-	ctx.player_meter.set_meter(292.0)
-	ctx.opp_meter.set_meter(292.0)
+	ctx.player_meter.set_meter(8.0)
+	ctx.opp_meter.set_meter(8.0)
 	ctx.player_attack.current_state = PlayerAttack.AttackState.ACTIVE
 	ctx.opp_attack.current_state = OppAttack.AttackState.ACTIVE
 	var before_player: int = ctx.player_attack.get_action_token()
@@ -122,8 +122,8 @@ func _check_active_trade(failures: Array[String], player_first: bool) -> void:
 		ctx.offense.resolve_hit_now(0)
 	if ctx.kd.match_state != KD.MatchState.DOUBLE_DOWN:
 		failures.append("order %s expected DOUBLE_DOWN got %d" % ["player-first" if player_first else "opponent-first", ctx.kd.match_state])
-	if ctx.player_meter.current_meter < 300.0 or ctx.opp_meter.current_meter < 300.0:
-		failures.append("both meters should reach 300")
+	if ctx.player_meter.current_meter > 0.0 or ctx.opp_meter.current_meter > 0.0:
+		failures.append("both meters should reach 0")
 	if ctx.player_attack.get_action_token() != before_player and ctx.player_attack.current_state != PlayerAttack.AttackState.IDLE:
 		failures.append("player attack should end after double confirm")
 	if ctx.opp_attack.current_state != OppAttack.AttackState.IDLE:
@@ -136,8 +136,8 @@ func _check_active_trade(failures: Array[String], player_first: bool) -> void:
 func _check_registered_token_only(failures: Array[String]) -> void:
 	var ctx := _make(false)
 	root.add_child(ctx.root)
-	ctx.opp_meter.set_meter(292.0)
-	ctx.player_meter.set_meter(0.0)
+	ctx.opp_meter.set_meter(8.0)
+	ctx.player_meter.set_meter(300.0)
 	ctx.player_attack.current_state = PlayerAttack.AttackState.ACTIVE
 	ctx.opp_attack.current_state = OppAttack.AttackState.ACTIVE
 	ctx.offense.resolve_hit_now(0)
@@ -174,6 +174,11 @@ func _check_both_recover(failures: Array[String]) -> void:
 	if ctx.player_meter.current_meter != 150.0:
 		failures.append("standing player meter should be 150")
 	_pump(ctx.kd, 3)
+	if ctx.kd.match_state != KD.MatchState.RESUME_DELAY:
+		failures.append("both recover should wait before fighting")
+	if ctx.kd.can_accept_combat_input():
+		failures.append("input must stay locked during the shared resume delay")
+	ctx.kd._process(ctx.kd.resume_delay_seconds)
 	if ctx.kd.match_state != KD.MatchState.FIGHTING:
 		failures.append("both recover should resume fighting")
 	if ctx.opp_meter.current_meter != 150.0:
@@ -228,13 +233,16 @@ func _check_single_regression(failures: Array[String]) -> void:
 	var ctx := _make(false)
 	root.add_child(ctx.root)
 	ctx.opp_stamina.current_stamina = 40.0
-	ctx.opp_meter.set_meter(292.0)
+	ctx.opp_meter.set_meter(8.0)
 	ctx.player_attack.current_state = PlayerAttack.AttackState.ACTIVE
 	ctx.kd.queue_recovery_result(KD.DownedSide.OPPONENT, true, 2)
 	ctx.offense.resolve_hit_now(0)
 	if ctx.kd.match_state != KD.MatchState.OPPONENT_DOWN:
 		failures.append("single regression did not go down")
 	_pump(ctx.kd, 2)
+	if ctx.kd.match_state != KD.MatchState.RESUME_DELAY:
+		failures.append("single recovery should wait before fighting")
+	ctx.kd._process(ctx.kd.resume_delay_seconds)
 	if ctx.kd.match_state != KD.MatchState.FIGHTING:
 		failures.append("single recovery did not resume")
 	if ctx.opp_meter.current_meter != 150.0:
@@ -277,8 +285,8 @@ func _check_one_finisher(failures: Array[String]) -> void:
 	ctx.finisher.finisher_freeze_duration = 30.0
 	var starts := [0]
 	ctx.finisher.finisher_started.connect(func(_s): starts[0] += 1)
-	ctx.player_meter.set_meter(292.0)
-	ctx.opp_meter.set_meter(292.0)
+	ctx.player_meter.set_meter(8.0)
+	ctx.opp_meter.set_meter(8.0)
 	ctx.player_attack.current_state = PlayerAttack.AttackState.ACTIVE
 	ctx.opp_attack.current_state = OppAttack.AttackState.ACTIVE
 	ctx.offense.resolve_hit_now(0)
@@ -298,8 +306,8 @@ func _arm_double(player_count: int, player_ok: bool, opp_count: int, opp_ok: boo
 	root.add_child(ctx.root)
 	ctx.player_stamina.current_stamina = 40.0
 	ctx.opp_stamina.current_stamina = 40.0
-	ctx.player_meter.set_meter(292.0)
-	ctx.opp_meter.set_meter(292.0)
+	ctx.player_meter.set_meter(8.0)
+	ctx.opp_meter.set_meter(8.0)
 	ctx.player_attack.current_state = PlayerAttack.AttackState.ACTIVE
 	ctx.opp_attack.current_state = OppAttack.AttackState.ACTIVE
 	ctx.kd.queue_recovery_result(KD.DownedSide.PLAYER, player_ok, player_count)

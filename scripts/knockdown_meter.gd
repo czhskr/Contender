@@ -1,13 +1,14 @@
 class_name KnockdownMeter
 extends Node
 
-## Accumulates knockdown damage from hits. Reaches max → Knockdown (not Final KO).
+## Remaining knockdown durability. Starts full and falls as damage lands.
+## Reaching 0 triggers Knockdown. It is not remaining HP and it is not Final KO.
 
 signal meter_changed(current_meter: float, max_meter: float)
 signal meter_filled()
 
 @export_range(1.0, 1000.0, 1.0, "or_greater") var max_meter := 300.0
-@export_range(0.0, 1000.0, 0.1, "or_greater") var initial_meter := 0.0
+@export_range(0.0, 1000.0, 0.1, "or_greater") var initial_meter := 300.0
 
 var current_meter := 0.0
 
@@ -21,17 +22,17 @@ func get_meter() -> float:
 	return current_meter
 
 
-func is_full() -> bool:
-	return current_meter >= max_meter
+func is_knockdown_threshold() -> bool:
+	return current_meter <= 0.0
 
 
 func apply_knockdown_damage(amount: float) -> float:
 	var before := current_meter
-	current_meter = clampf(current_meter + maxf(amount, 0.0), 0.0, max_meter)
-	var applied := current_meter - before
-	if applied > 0.0 or amount > 0.0:
+	current_meter = clampf(current_meter - maxf(amount, 0.0), 0.0, max_meter)
+	var applied := before - current_meter
+	if applied > 0.0:
 		meter_changed.emit(current_meter, max_meter)
-	if before < max_meter and current_meter >= max_meter:
+	if before > 0.0 and current_meter <= 0.0:
 		meter_filled.emit()
 	return applied
 
@@ -51,4 +52,4 @@ func reduce_meter(amount: float) -> float:
 
 
 func reset_meter() -> void:
-	set_meter(0.0)
+	set_meter(max_meter)

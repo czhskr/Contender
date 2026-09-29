@@ -1,14 +1,6 @@
-[gd_resource type="Resource" script_class="RecoveryChanceSettings" load_steps=2 format=3]
+[gd_resource type="Resource" script_class="RecoveryChanceSettings" format=3 uid="uid://blphfm7rm3ncq"]
 
-[ext_resource type="Script" path="res://scripts/recovery_chance_settings.gd" id="1"]
+[ext_resource type="Script" uid="uid://c8i6yd7tq50pr" path="res://scripts/recovery_chance_settings.gd" id="1"]
 
 [resource]
 script = ExtResource("1")
-reference_stamina = 100.0
-recovery_chance_exponent = 1.25
-max_recovery_chance = 0.85
-min_recovery_chance = 0.05
-earliest_stand_up_count = 1
-latest_stand_up_count = 9
-stand_up_count_exponent = 1.25
-recovery_stamina_amount = 15.0

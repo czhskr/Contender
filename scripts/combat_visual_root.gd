@@ -10,6 +10,7 @@ const DefenseResolverType = preload("res://scripts/player_defense_resolver.gd")
 const KnockdownManagerType = preload("res://scripts/knockdown_manager.gd")
 const PlayerEvadeType = preload("res://scripts/player_evade.gd")
 const DisplayLayout = preload("res://scripts/visual_display_layout.gd")
+const MatchSettings = preload("res://scripts/match_settings.gd")
 
 @export var viewport_size := Vector2(1152, 648)
 
@@ -26,9 +27,9 @@ const DisplayLayout = preload("res://scripts/visual_display_layout.gd")
 @export_group("World Parallax (Horizontal)")
 ## Closer layers move more. Evade Left → world +X; Evade Right → world -X.
 ## Stronger than legacy Slip (10/24/48) because Player X translation is locked at 0.
-@export_range(0.0, 200.0, 1.0, "or_greater") var parallax_crowd_x := 30.0
-@export_range(0.0, 200.0, 1.0, "or_greater") var parallax_ring_x := 65.0
-@export_range(0.0, 300.0, 1.0, "or_greater") var parallax_opponent_x := 130.0
+@export_range(0.0, 200.0, 1.0, "or_greater") var parallax_crowd_x := 80.0
+@export_range(0.0, 400.0, 1.0, "or_greater") var parallax_ring_x := 160.0
+@export_range(0.0, 400.0, 1.0, "or_greater") var parallax_opponent_x := 280.0
 
 @export_group("World Parallax (Down)")
 ## Explicit S/DOWN look-down. Kept within pass-by stack budget.
@@ -47,21 +48,27 @@ const DisplayLayout = preload("res://scripts/visual_display_layout.gd")
 @export_range(0.0, 64.0, 1.0, "or_greater") var background_overscan_safety := 4.0
 
 @export_group("Hit Shake")
-@export_range(0.0, 64.0, 0.5, "or_greater") var opponent_hit_shake_strength := 3.0
+## Presentation only. Damage, stamina, and resolution stay on the resolvers.
+## Opponent values fire when the player lands. Player values fire when the player is hit.
+@export_range(0.0, 64.0, 0.5, "or_greater") var opponent_hit_shake_strength := 5.0
 @export_range(0.01, 1.0, 0.01, "or_greater") var opponent_hit_shake_duration := 0.10
-@export_range(0.0, 64.0, 0.5, "or_greater") var player_hit_shake_strength := 7.0
+@export_range(0.0, 64.0, 0.5, "or_greater") var player_hit_shake_strength := 12.0
 @export_range(0.01, 1.0, 0.01, "or_greater") var player_hit_shake_duration := 0.15
+## High Guard BLOCK is the same camera shake, kept under a clean HIT.
+const BLOCK_SHAKE_SCALE := 0.65
 
 @export_group("Evade Visual (does not change gameplay evade window)")
 ## Opponent punch pass-by hold (does NOT lock Player continuous movement).
 @export_range(0.0, 2.0, 0.01, "or_greater") var evade_visual_hold_seconds := 0.20
-@export_range(0.0, 400.0, 1.0, "or_greater") var evade_passby_offset_x := 130.0
+@export_range(0.0, 400.0, 1.0, "or_greater") var evade_passby_offset_x := 40.0
 ## Modest so DOWN continuous + pass-by does not clip Opponent top (stack ≤ ~80).
 @export_range(0.0, 400.0, 1.0, "or_greater") var evade_down_passby_offset_y := 40.0
-## Straight glove is painted through screen center. Existing down parallax 40
-## plus pass-by 40 still leave that glove on the eye line. Extra lift is
-## presentation only, and only while the attack texture is showing.
-@export_range(0.0, 400.0, 1.0, "or_greater") var attack_down_miss_clearance := 250.0
+## Extra lift while a straight texture is showing during a live DOWN window.
+## The glove center sits about 90px below the eye line after the existing
+## duck parallax and the 40px pass-by. 51px more puts that center just above
+## the eye line. It eases in and out; it is not applied in one frame.
+@export_range(0.0, 400.0, 1.0, "or_greater") var attack_down_miss_clearance := 51.0
+@export_range(0.02, 0.5, 0.01) var attack_down_miss_blend_seconds := 0.12
 @export var print_evade_visual := false
 
 var base_position := Vector2.ZERO
@@ -363,6 +370,9 @@ func _on_player_attack_hit(
 	result: int
 ) -> void:
 	## Finisher: keep punch impact shake during freeze; DOWN visual waits for KnockdownManager.
+	if result == OffenseResolverType.ResolveResult.BLOCK:
+		_play_shake(opponent_hit_shake_strength * BLOCK_SHAKE_SCALE, opponent_hit_shake_duration)
+		return
 	if result != OffenseResolverType.ResolveResult.HIT:
 		return
 	_play_shake(opponent_hit_shake_strength, opponent_hit_shake_duration)
@@ -380,6 +390,9 @@ func _on_opponent_attack_resolved(
 		if was_knockdown:
 			return
 		_begin_evade_passby_presentation()
+		return
+	if result == DefenseResolverType.DefenseResult.BLOCK:
+		_play_shake(player_hit_shake_strength * BLOCK_SHAKE_SCALE, player_hit_shake_duration)
 		return
 	if result != DefenseResolverType.DefenseResult.HIT:
 		return
@@ -419,7 +432,17 @@ func _begin_evade_passby_presentation() -> void:
 
 
 ## Extra offset beyond world parallax while an attack texture is on screen.
-## Pass-by matches the existing evade presentation. Down adds the asset clearance.
+## Pass-by matches the existing evade presentation. The down miss eases separately.
+func down_attack_miss_motion(_attack_texture_visible: bool) -> Dictionary:
+	## The straight and the body share one full-frame texture.
+	## A separate miss on the body anchor is the vertical bounce, so the body
+	## stays on the continuous duck parallax.
+	return {
+		"target": Vector2.ZERO,
+		"speed": attack_down_miss_clearance / maxf(attack_down_miss_blend_seconds, 0.02),
+	}
+
+
 func attack_texture_evade_offsets() -> Dictionary:
 	var direction := _active_evade_window_direction()
 	var passby := Vector2.ZERO
@@ -429,11 +452,9 @@ func attack_texture_evade_offsets() -> Dictionary:
 		PlayerEvadeType.Direction.RIGHT:
 			passby = Vector2(-evade_passby_offset_x, 0.0)
 		PlayerEvadeType.Direction.DOWN:
-			passby = Vector2(0.0, -evade_down_passby_offset_y)
-	var clearance := Vector2.ZERO
-	if direction == PlayerEvadeType.Direction.DOWN:
-		clearance = Vector2(0.0, -attack_down_miss_clearance)
-	return {"passby": passby, "clearance": clearance}
+			## Vertical pass-by would lift the whole straight canvas, body included.
+			passby = Vector2.ZERO
+	return {"passby": passby, "clearance": Vector2.ZERO}
 
 
 func _active_evade_window_direction() -> int:
@@ -456,8 +477,7 @@ func _resolve_passby_offset() -> Vector2:
 		PlayerEvadeType.Direction.RIGHT:
 			return Vector2(-evade_passby_offset_x, 0.0)
 		PlayerEvadeType.Direction.DOWN:
-			## Negative Y: Straight passes above the ducked POV.
-			return Vector2(0.0, -evade_down_passby_offset_y)
+			return Vector2.ZERO
 		_:
 			return Vector2.ZERO
 
@@ -484,6 +504,8 @@ func _on_match_state_changed(state: int) -> void:
 
 func _play_shake(strength: float, duration: float) -> void:
 	## During freeze hold (after brief impact window), do not keep shaking.
+	var strength_scale := MatchSettings.screen_shake_multiplier()
+	strength *= strength_scale
 	if _finisher_freeze and _freeze_shake_cleared:
 		return
 	_shake_token += 1

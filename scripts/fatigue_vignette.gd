@@ -7,9 +7,9 @@ extends CanvasLayer
 @export var player_stamina: Node
 @export var opponent_visual: Node
 
-@export_range(0.05, 1.0, 0.01) var inner_radius := 0.42
-@export_range(0.05, 1.5, 0.01) var edge_softness := 0.7
-@export_range(0.0, 1.0, 0.01) var max_edge_alpha := 0.62
+@export_range(0.05, 1.0, 0.01) var inner_radius := 0.58
+@export_range(0.05, 1.5, 0.01) var edge_softness := 0.48
+@export_range(0.0, 1.0, 0.01) var max_edge_alpha := 0.88
 @export_range(0.5, 4.0, 0.05) var fatigue_exponent := 2.0
 
 var _rect: ColorRect
@@ -33,8 +33,11 @@ func bind(stamina: Node, opponent: Node) -> void:
 
 
 func vignette_intensity_for(current_stamina: float, max_stamina: float) -> float:
-	var fatigue := clampf(1.0 - current_stamina / maxf(max_stamina, 0.001), 0.0, 1.0)
-	return pow(fatigue, fatigue_exponent)
+	var ratio := clampf(current_stamina / maxf(max_stamina, 0.001), 0.0, 1.0)
+	if ratio >= 0.5:
+		return 0.0 if ratio > 0.5 else 0.04
+	var drop := (0.5 - ratio) / 0.5
+	return lerpf(0.04, 1.0, pow(drop, 0.55))
 
 
 func _build() -> void:
@@ -43,9 +46,9 @@ func _build() -> void:
 	var shader := Shader.new()
 	shader.code = """shader_type canvas_item;
 uniform float intensity : hint_range(0.0, 1.0) = 0.0;
-uniform float inner_radius : hint_range(0.0, 1.5) = 0.42;
-uniform float edge_softness : hint_range(0.01, 1.5) = 0.7;
-uniform float max_alpha : hint_range(0.0, 1.0) = 0.62;
+uniform float inner_radius : hint_range(0.0, 1.5) = 0.58;
+uniform float edge_softness : hint_range(0.01, 1.5) = 0.48;
+uniform float max_alpha : hint_range(0.0, 1.0) = 0.88;
 void fragment() {
 	float dist = length((UV - vec2(0.5)) * vec2(1.777, 1.0));
 	float edge = smoothstep(inner_radius, inner_radius + edge_softness, dist);

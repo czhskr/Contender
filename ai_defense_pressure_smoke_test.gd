@@ -72,8 +72,8 @@ func _check_pressure(failures: Array[String]) -> void:
 	ai._on_player_attack_state_changed(AttackType.AttackState.STARTUP, 0)
 	if not ai._pressure_reaction:
 		failures.append("The next startup should queue pressure defense without hit stun")
-	if ai._reaction_timer > 0.08:
-		failures.append("Pressure reaction should stay near 0.06")
+	if ai._reaction_timer > 0.12:
+		failures.append("Pressure reaction should stay near 0.104")
 	for _step in 12:
 		ai._process(0.01)
 	if not ai.opponent_action_state.is_guarding():
@@ -88,23 +88,23 @@ func _check_pressure(failures: Array[String]) -> void:
 func _check_hit_scaling(failures: Array[String]) -> void:
 	var ai := _make_ai()
 	ai._on_player_attack_resolved(0, 8.0, 0.0, false, 0)
-	if ai._pressure_hit_count != 1 or not is_equal_approx(ai._pressure_defense_chance_now(), 0.85):
-		failures.append("First clean hit should be 85 percent")
-	if not is_equal_approx(ai._pressure_reaction_base(), 0.06):
-		failures.append("First clean hit reaction should be 0.06")
+	if ai._pressure_hit_count != 1 or not is_equal_approx(ai._pressure_defense_chance_now(), 0.60):
+		failures.append("First clean hit should be 60 percent")
+	if not is_equal_approx(ai._pressure_reaction_base(), 0.104):
+		failures.append("First clean hit reaction should be 0.104")
 	ai._on_player_attack_resolved(0, 8.0, 0.0, false, 0)
-	if ai._pressure_hit_count != 2 or not is_equal_approx(ai._pressure_defense_chance_now(), 0.95):
-		failures.append("Second clean hit should be 95 percent")
-	if not is_equal_approx(ai._pressure_reaction_base(), 0.03):
-		failures.append("Second clean hit reaction should be 0.03")
+	if ai._pressure_hit_count != 2 or not is_equal_approx(ai._pressure_defense_chance_now(), 0.68):
+		failures.append("Second clean hit should be 68 percent")
+	if not is_equal_approx(ai._pressure_reaction_base(), 0.065):
+		failures.append("Second clean hit reaction should be 0.065")
 	ai._on_player_attack_resolved(1, 2.0, 0.0, false, 1)
 	if ai._pressure_hit_count != 2:
 		failures.append("A block must not increase the clean-hit count")
 	ai._on_player_attack_resolved(0, 8.0, 0.0, false, 0)
-	if ai._pressure_hit_count < 3 or not is_equal_approx(ai._pressure_defense_chance_now(), 1.0):
-		failures.append("Third clean hit should be 100 percent")
-	if not is_equal_approx(ai._pressure_reaction_base(), 0.01):
-		failures.append("Third clean hit reaction should be 0.01")
+	if ai._pressure_hit_count < 3 or not is_equal_approx(ai._pressure_defense_chance_now(), 0.76):
+		failures.append("Third clean hit should be 76 percent")
+	if not is_equal_approx(ai._pressure_reaction_base(), 0.039):
+		failures.append("Third clean hit reaction should be 0.039")
 	ai._pressure_until = ai._combat_time - 0.01
 	ai._process(0.01)
 	if ai._pressure_hit_count != 0:
@@ -125,11 +125,11 @@ func _check_combo_stats(failures: Array[String]) -> void:
 		var escaped := 0
 		while hits < 8:
 			hits += 1
-			var chance := 0.85
+			var chance := 0.60
 			if hits >= 3:
-				chance = 1.0
+				chance = 0.76
 			elif hits == 2:
-				chance = 0.95
+				chance = 0.68
 			if randf() <= chance:
 				escaped = hits
 				break
@@ -178,20 +178,20 @@ func _check_proactive(failures: Array[String]) -> void:
 
 func _check_cadence_defaults(failures: Array[String]) -> void:
 	var ai := AIType.new()
-	if not is_equal_approx(ai.proactive_defense_interval_min, 0.50):
-		failures.append("proactive interval min should be 0.50")
-	if not is_equal_approx(ai.proactive_defense_interval_max, 1.00):
-		failures.append("proactive interval max should be 1.00")
-	if not is_equal_approx(ai.proactive_guard_chance, 0.45):
-		failures.append("proactive chance should stay 0.45")
+	if not is_equal_approx(ai.proactive_defense_interval_min, 0.55):
+		failures.append("proactive interval min should be 0.55")
+	if not is_equal_approx(ai.proactive_defense_interval_max, 1.05):
+		failures.append("proactive interval max should be 1.05")
+	if not is_equal_approx(ai.proactive_guard_chance, 0.32):
+		failures.append("proactive chance should stay 0.32")
 	if not is_equal_approx(ai.proactive_guard_weight, 0.65):
 		failures.append("proactive guard weight should stay 0.65")
 	if not is_equal_approx(ai.pressure_memory_duration, 0.60):
 		failures.append("pressure memory should stay 0.60")
-	if not is_equal_approx(ai.pressure_defense_chance, 0.85):
-		failures.append("pressure chance should stay 0.85")
-	if not is_equal_approx(ai.pressure_reaction_delay, 0.06):
-		failures.append("pressure reaction should stay 0.06")
+	if not is_equal_approx(ai.pressure_defense_chance, 0.60):
+		failures.append("pressure chance should stay 0.60")
+	if not is_equal_approx(ai.pressure_reaction_delay, 0.104):
+		failures.append("pressure reaction should stay 0.104")
 	if not is_equal_approx(ai.pressure_guard_weight, 0.45):
 		failures.append("pressure guard weight should stay 0.45")
 	if not is_equal_approx(ai.proactive_guard_hold_min, 0.55):
@@ -203,8 +203,8 @@ func _check_cadence_defaults(failures: Array[String]) -> void:
 	if is_equal_approx(ai.pressure_guard_duration, ai.proactive_guard_hold_min):
 		failures.append("Pressure guard duration must not share the proactive range")
 	var difficulty := preload("res://scripts/opponent_difficulty_settings.gd").new()
-	if not is_equal_approx(difficulty.reaction_delay, 0.16):
-		failures.append("normal reaction should stay 0.16")
+	if not is_equal_approx(difficulty.reaction_delay, 0.234):
+		failures.append("normal reaction should stay 0.234")
 	if not is_equal_approx(ai._compose_reaction(0.16), 0.16):
 		failures.append("Full stamina should leave normal reaction at 0.16")
 	var stamina := preload("res://scripts/player_stamina.gd").new()

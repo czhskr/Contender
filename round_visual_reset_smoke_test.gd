@@ -72,13 +72,13 @@ func _check_kd_max(failures: Array[String]) -> void:
 	var meter := MeterType.new()
 	if not is_equal_approx(meter.max_meter, 300.0):
 		failures.append("KD max should be 300")
-	meter.set_meter(299.0)
+	meter.set_meter(1.0)
 	meter.apply_knockdown_damage(0.5)
-	if meter.is_full():
-		failures.append("299.5 must not knock down")
+	if meter.is_knockdown_threshold():
+		failures.append("0.5 remaining must not knock down")
 	meter.apply_knockdown_damage(0.5)
-	if not meter.is_full():
-		failures.append("300 must knock down")
+	if not meter.is_knockdown_threshold():
+		failures.append("0 must knock down")
 	var kd := KnockdownType.new()
 	kd.opponent_knockdown_meter = meter
 	kd.downed_side = KnockdownType.DownedSide.OPPONENT

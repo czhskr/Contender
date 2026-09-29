@@ -67,8 +67,8 @@ func _check_defaults(failures: Array[String]) -> void:
 		failures.append("DOWN evade offset != (0, 10)")
 	if not is_equal_approx(opponent.breathing_amplitude, 6.0):
 		failures.append("Opponent breathing_amplitude != 6")
-	if not is_equal_approx(opponent.attack_pose_hold_seconds, 0.20):
-		failures.append("attack_pose_hold_seconds != 0.20")
+	if not is_equal_approx(opponent.attack_pose_hold_seconds, 0.28):
+		failures.append("attack_pose_hold_seconds != 0.28")
 	if not is_equal_approx(opponent.knockdown_impact_shake_y, 10.0):
 		failures.append("opponent knockdown_impact_shake_y != 10")
 	if opponent.knockdown_impact_shake_count != 3:
@@ -77,14 +77,14 @@ func _check_defaults(failures: Array[String]) -> void:
 		failures.append("opponent knockdown_impact_shake_duration != 0.18")
 	if not is_equal_approx(player.knockdown_impact_shake_y, 6.0):
 		failures.append("player knockdown_impact_shake_y != 6")
-	if not is_equal_approx(visual_root.parallax_crowd_x, 30.0):
-		failures.append("parallax_crowd_x != 30")
-	if not is_equal_approx(visual_root.parallax_ring_x, 65.0):
-		failures.append("parallax_ring_x != 65")
-	if not is_equal_approx(visual_root.parallax_opponent_x, 130.0):
-		failures.append("parallax_opponent_x != 130")
-	if not is_equal_approx(visual_root.evade_passby_offset_x, 130.0):
-		failures.append("evade_passby must stay 130")
+	if not is_equal_approx(visual_root.parallax_crowd_x, 80.0):
+		failures.append("parallax_crowd_x != 80")
+	if not is_equal_approx(visual_root.parallax_ring_x, 160.0):
+		failures.append("parallax_ring_x != 160")
+	if not is_equal_approx(visual_root.parallax_opponent_x, 280.0):
+		failures.append("parallax_opponent_x != 280")
+	if not is_equal_approx(visual_root.evade_passby_offset_x, 40.0):
+		failures.append("evade_passby must stay 40")
 	if not is_equal_approx(visual_root.evade_visual_hold_seconds, 0.20):
 		failures.append("evade_visual_hold must stay 0.20")
 	if not (
@@ -92,10 +92,10 @@ func _check_defaults(failures: Array[String]) -> void:
 		and visual_root.parallax_ring_x > visual_root.parallax_crowd_x
 	):
 		failures.append("Parallax depth order Crowd < Ring < Opponent broken")
-	if not is_equal_approx(visual_root.opponent_hit_shake_strength, 3.0):
-		failures.append("opponent_hit_shake_strength != 3")
-	if not is_equal_approx(visual_root.player_hit_shake_strength, 7.0):
-		failures.append("player_hit_shake_strength != 7")
+	if not is_equal_approx(visual_root.opponent_hit_shake_strength, 5.0):
+		failures.append("opponent_hit_shake_strength != 5")
+	if not is_equal_approx(visual_root.player_hit_shake_strength, 12.0):
+		failures.append("player_hit_shake_strength != 12")
 	player.free()
 	opponent.free()
 	visual_root.free()
@@ -272,8 +272,8 @@ func _check_evade_visual_hold_api(failures: Array[String]) -> void:
 	var visual_root := CombatVisualRootType.new()
 	if not is_equal_approx(visual_root.evade_visual_hold_seconds, 0.20):
 		failures.append("evade_visual_hold_seconds expected 0.20")
-	if not is_equal_approx(visual_root.evade_passby_offset_x, 130.0):
-		failures.append("evade_passby_offset_x expected 130")
+	if not is_equal_approx(visual_root.evade_passby_offset_x, 40.0):
+		failures.append("evade_passby_offset_x expected 40")
 	if not visual_root.has_method("_begin_evade_passby_presentation"):
 		failures.append("Missing evade passby presentation")
 	## Passby must not lock player continuous movement APIs
@@ -491,6 +491,29 @@ func _check_background_overscan(failures: Array[String]) -> void:
 	for offset in ring_offsets:
 		if not bg.layer_covers_viewport(ring, offset):
 			failures.append("Ring edge exposed at %s" % str(offset))
+	root_v.background_visual = bg
+	root_v._apply_background_overscan()
+	var safety: float = root_v.background_overscan_safety
+	if not is_equal_approx(bg.crowd_bleed.x, root_v.parallax_crowd_x + safety):
+		failures.append("Crowd horizontal overscan is not amplitude plus safety")
+	if not is_equal_approx(bg.ring_bleed.x, root_v.parallax_ring_x + safety):
+		failures.append("Ring horizontal overscan is not amplitude plus safety")
+	if not is_equal_approx(bg.crowd_bleed.y, root_v.parallax_crowd_down_y + root_v.weave_depth_crowd + safety):
+		failures.append("Crowd vertical overscan changed")
+	if not is_equal_approx(bg.ring_bleed.y, root_v.parallax_ring_down_y + root_v.weave_depth_ring + safety):
+		failures.append("Ring vertical overscan changed")
+	root_v._head_lateral = 1.0
+	root_v._compose_head_parallax()
+	if not is_equal_approx(root_v._crowd_parallax.x, 80.0) or not is_equal_approx(root_v._ring_parallax.x, 160.0):
+		failures.append("LEFT background parallax is not 80 / 160")
+	if not is_equal_approx(root_v._opponent_parallax.x, 280.0):
+		failures.append("LEFT opponent parallax is not 280")
+	if absf(root_v._crowd_parallax.x) >= absf(root_v._ring_parallax.x) or absf(root_v._ring_parallax.x) >= absf(root_v._opponent_parallax.x):
+		failures.append("Parallax depth is not Opponent > Ring > Crowd")
+	if not bg.layer_covers_viewport(crowd, Vector2(80.0, 0.0)) or not bg.layer_covers_viewport(crowd, Vector2(-80.0, 0.0)):
+		failures.append("Crowd edge exposed at the new horizontal amplitude")
+	if not bg.layer_covers_viewport(ring, Vector2(160.0, 0.0)) or not bg.layer_covers_viewport(ring, Vector2(-160.0, 0.0)):
+		failures.append("Ring edge exposed at the new horizontal amplitude")
 	root_v.free()
 
 	var player := PlayerVisualType.new()
@@ -522,7 +545,7 @@ func _check_opponent_down_coverage(failures: Array[String]) -> void:
 	var lift := root_v.max_opponent_upward_lift()
 	if not is_equal_approx(lift, 85.0):
 		failures.append("Max upward lift expected 85, got %.2f" % lift)
-	if not is_equal_approx(root_v.parallax_opponent_x, 130.0):
+	if not is_equal_approx(root_v.parallax_opponent_x, 280.0):
 		failures.append("Opponent horizontal parallax changed")
 	if not is_equal_approx(root_v.parallax_opponent_down_y, 40.0):
 		failures.append("Opponent DOWN parallax changed")
@@ -585,8 +608,16 @@ func _check_scene(failures: Array[String]) -> void:
 			failures.append("CombatVisualRoot.background_visual not wired")
 		if visual_root.opponent_visual == null:
 			failures.append("CombatVisualRoot.opponent_visual not wired")
-		if not is_equal_approx(visual_root.parallax_opponent_x, 130.0):
-			failures.append("Scene parallax_opponent_x != 130")
+		if not is_equal_approx(visual_root.parallax_opponent_x, 280.0):
+			failures.append("Scene parallax_opponent_x != 280")
+		if not is_equal_approx(visual_root.player_hit_shake_strength, 12.0):
+			failures.append("Scene player hit shake != 12")
+		if not is_equal_approx(visual_root.opponent_hit_shake_strength, 5.0):
+			failures.append("Scene opponent hit shake != 5")
+		if not is_equal_approx(visual_root.player_hit_shake_duration, 0.15):
+			failures.append("Scene player hit shake duration changed")
+		if not is_equal_approx(visual_root.opponent_hit_shake_duration, 0.10):
+			failures.append("Scene opponent hit shake duration changed")
 	var player_v = scene.get_node_or_null("CombatVisualRoot/PlayerVisual")
 	if player_v != null:
 		if player_v.player_evade == null:
@@ -601,8 +632,8 @@ func _check_scene(failures: Array[String]) -> void:
 	elif evade_node.left_offset != Vector2(0.0, 10.0):
 		failures.append("Scene LEFT evade offset wrong")
 	var opp_v = scene.get_node_or_null("CombatVisualRoot/OpponentVisual")
-	if opp_v != null and not is_equal_approx(opp_v.attack_pose_hold_seconds, 0.20):
-		failures.append("Scene OpponentVisual hold != 0.20")
+	if opp_v != null and not is_equal_approx(opp_v.attack_pose_hold_seconds, 0.28):
+		failures.append("Scene OpponentVisual hold != 0.28")
 	if opp_v != null and not is_equal_approx(opp_v.knockdown_impact_shake_y, 10.0):
 		failures.append("Scene opponent knockdown_impact_shake_y != 10")
 	if opp_v != null and not opp_v.has_method("_play_knockdown_impact_shake"):

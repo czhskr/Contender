@@ -170,8 +170,8 @@ func _check_block_and_evade_vulnerability(failures: Array[String]) -> void:
 	action.current_state = OppActionType.OpponentState.GUARD
 	offense.resolve_hit_now(0)
 	## 10 * 0.25 * 1.50 = 3.75
-	if absf(meter.current_meter - 3.75) > 0.15:
-		failures.append("BLOCK at 0 stamina expected ~3.75 KD, got %.2f" % meter.current_meter)
+	if absf(meter.current_meter - 296.25) > 0.15:
+		failures.append("BLOCK at 0 stamina expected ~296.25 KD, got %.2f" % meter.current_meter)
 	meter.set_meter(0.0)
 	action.current_state = OppActionType.OpponentState.SLIP_LEFT
 	action.current_evasion_phase = OppActionType.EvasionPhase.EVADING

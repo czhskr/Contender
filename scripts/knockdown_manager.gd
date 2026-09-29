@@ -14,6 +14,7 @@ signal recovery_decided(
 signal recovered(downed_side: DownedSide, at_count: int)
 signal match_finished(winner: Winner)
 signal round_voided
+signal knockdown_confirmed
 signal fighter_stood(downed_side: DownedSide, at_count: int)
 signal hud_text_changed(text: String)
 
@@ -25,6 +26,7 @@ enum MatchState {
 	FINAL_KO,
 	TRADE_RESOLUTION,
 	DOUBLE_DOWN,
+	RESUME_DELAY,
 }
 
 enum DownedSide {
@@ -68,6 +70,8 @@ const OffenseResolverType = preload("res://scripts/player_offense_resolver.gd")
 
 @export_group("Count")
 @export_range(0.05, 5.0, 0.05, "or_greater") var count_interval := 1.0
+## Stand-up pause before both fighters may act again. Not a count tick.
+@export_range(0.0, 5.0, 0.05, "or_greater") var resume_delay_seconds := 2.0
 
 @export_group("Knockdown Meter")
 ## Successful stand-up restores this fraction of the meter's maximum.
@@ -89,6 +93,9 @@ var will_recover := false
 var stand_up_count := -1
 
 var _count_time_remaining := 0.0
+var _resume_time_remaining := 0.0
+var _begin_requested := false
+var _waiting_for_begin := false
 ## When false, RoundManager (break / round end / finished) owns combat freeze.
 var _combat_control_enabled := true
 var _candidate_live := false
@@ -122,6 +129,22 @@ func _ready() -> void:
 
 
 func _process(delta: float) -> void:
+	if match_state == MatchState.RESUME_DELAY:
+		_discard_resume_inputs()
+		if _waiting_for_begin:
+			return
+		_resume_time_remaining = maxf(_resume_time_remaining - delta, 0.0)
+		if not _begin_requested and _resume_time_remaining <= _begin_presentation_length():
+			_begin_requested = true
+			if _play_begin():
+				_waiting_for_begin = true
+				return
+		if _resume_time_remaining > 0.0:
+			return
+		_discard_resume_inputs()
+		_resume_fighting()
+		hud_text_changed.emit("FIGHTING")
+		return
 	if match_state not in [MatchState.PLAYER_DOWN, MatchState.OPPONENT_DOWN, MatchState.DOUBLE_DOWN]:
 		return
 
@@ -214,6 +237,10 @@ func force_knockdown(side: DownedSide) -> void:
 		return
 	if not _combat_control_enabled:
 		return
+	if side == DownedSide.PLAYER and player_knockdown_meter != null:
+		player_knockdown_meter.set_meter(0.0)
+	elif side == DownedSide.OPPONENT and opponent_knockdown_meter != null:
+		opponent_knockdown_meter.set_meter(0.0)
 	_begin_knockdown(side)
 
 
@@ -268,11 +295,11 @@ func _commit_trade(from_candidate: bool) -> void:
 	if match_state != MatchState.TRADE_RESOLUTION:
 		return
 	_candidate_live = false
-	var player_full := player_knockdown_meter != null and player_knockdown_meter.is_full()
-	var opponent_full := opponent_knockdown_meter != null and opponent_knockdown_meter.is_full()
+	var player_down := player_knockdown_meter != null and player_knockdown_meter.is_knockdown_threshold()
+	var opponent_down := opponent_knockdown_meter != null and opponent_knockdown_meter.is_knockdown_threshold()
 	var player_now := 0.0 if player_knockdown_meter == null else player_knockdown_meter.current_meter
 	var opponent_now := 0.0 if opponent_knockdown_meter == null else opponent_knockdown_meter.current_meter
-	if player_full and opponent_full:
+	if player_down and opponent_down:
 		_pending_kind = 2
 		_pending_side = DownedSide.BOTH
 		if print_events:
@@ -282,12 +309,12 @@ func _commit_trade(from_candidate: bool) -> void:
 				print("player_kd=%.0f" % player_now)
 				print("opponent_kd=%.0f" % opponent_now)
 			print("result=DOUBLE_KNOCKDOWN")
-	elif player_full:
+	elif player_down:
 		_pending_kind = 1
 		_pending_side = DownedSide.PLAYER
 		if print_events:
 			print("result=SINGLE_KNOCKDOWN")
-	elif opponent_full:
+	elif opponent_down:
 		_pending_kind = 1
 		_pending_side = DownedSide.OPPONENT
 		if print_events:
@@ -295,6 +322,7 @@ func _commit_trade(from_candidate: bool) -> void:
 	else:
 		match_state = MatchState.FIGHTING
 		return
+	knockdown_confirmed.emit()
 	_present_pending()
 
 
@@ -377,6 +405,8 @@ func _begin_double_knockdown() -> void:
 	_opponent_will_recover = bool(opponent_result["success"])
 	_player_stand_count = int(player_result["stand_up_count"])
 	_opponent_stand_count = int(opponent_result["stand_up_count"])
+	_log_recovery(DownedSide.PLAYER, player_result)
+	_log_recovery(DownedSide.OPPONENT, opponent_result)
 	match_state = MatchState.DOUBLE_DOWN
 	_freeze_combat()
 	if print_events:
@@ -414,37 +444,42 @@ func _decide_recovery() -> void:
 	var result := _take_recovery(downed_side, stamina.current_stamina)
 	will_recover = bool(result["success"])
 	stand_up_count = int(result["stand_up_count"])
-
-	var side_label := "Player" if downed_side == DownedSide.PLAYER else "Opponent"
-	var stamina_now: float = float(result["stamina"])
-	var chance: float = float(result["chance"])
-	var roll: float = float(result["roll"])
-
-	if print_events:
-		print("%s Knockdown | Stamina: %.0f (#%d)" % [
-			side_label,
-			stamina_now,
-			player_knockdown_count if downed_side == DownedSide.PLAYER else opponent_knockdown_count,
-		])
-		if will_recover:
-			print(
-				"Recovery Roll: SUCCESS (%.0f%% vs %.0f%%) | Stand-up Count: %d"
-				% [roll * 100.0, chance * 100.0, stand_up_count]
-			)
-		else:
-			print(
-				"Recovery Roll: FAILED (%.0f%% vs %.0f%%) | Final KO if count reaches 10"
-				% [roll * 100.0, chance * 100.0]
-			)
+	_log_recovery(downed_side, result)
 
 	recovery_decided.emit(
 		downed_side,
 		will_recover,
 		stand_up_count,
-		stamina_now,
-		chance,
-		roll
+		float(result["stamina"]),
+		float(result["chance"]) if result.has("chance") else 0.0,
+		float(result["roll"]) if result.has("roll") else 0.0
 	)
+
+
+func _log_recovery(side: DownedSide, result: Dictionary) -> void:
+	if not print_events or not result.has("chance"):
+		return
+	var settings: RecoverySettingsType = player_recovery_settings if side == DownedSide.PLAYER else opponent_recovery_settings
+	var stamina_now := float(result["stamina"])
+	var ratio := stamina_now / maxf(settings.reference_stamina, 0.001)
+	var curved: float = settings._stamina_curve(stamina_now, settings.recovery_chance_exponent)
+	var base_chance := lerpf(settings.min_recovery_chance, settings.max_recovery_chance, curved)
+	var final_chance := float(result["chance"])
+	var bonus := final_chance - base_chance
+	var roll := float(result["roll"])
+	var success := bool(result["success"])
+	print("[RECOVERY] fighter=%s kd=%d stamina=%.1f ratio=%.3f base_chance=%.3f bonus=%.3f final_chance=%.3f roll=%.3f comparison=roll<final_chance result=%s stand_count=%s" % [
+		"PLAYER" if side == DownedSide.PLAYER else "OPPONENT",
+		player_knockdown_count if side == DownedSide.PLAYER else opponent_knockdown_count,
+		stamina_now,
+		ratio,
+		base_chance,
+		bonus,
+		final_chance,
+		roll,
+		"SUCCESS" if success else "FAIL",
+		str(int(result["stand_up_count"])) if success else "-",
+	])
 
 
 func _advance_count() -> void:
@@ -481,9 +516,8 @@ func _recover(at_count: int) -> void:
 		var label := "Player" if recovered_side == DownedSide.PLAYER else "Opponent"
 		print("%s recovered at %d | KD Meter -> %.0f" % [label, at_count, restored_meter])
 
-	_resume_fighting()
+	_begin_resume_delay()
 	recovered.emit(recovered_side, at_count)
-	hud_text_changed.emit("FIGHTING")
 
 
 func _advance_double_count() -> void:
@@ -494,10 +528,9 @@ func _advance_double_count() -> void:
 	if _player_stood and _opponent_stood:
 		if print_events:
 			print("Both recovered")
-			print("FIGHTING RESUME")
-		_resume_fighting()
-		hud_text_changed.emit("FIGHTING")
-		recovered.emit(DownedSide.BOTH, current_count)
+		var stood_count := current_count
+		_begin_resume_delay()
+		recovered.emit(DownedSide.BOTH, stood_count)
 		return
 	if current_count >= 10:
 		_finish_double_at_ten()
@@ -602,6 +635,9 @@ func reset_for_next_round() -> void:
 	_opponent_stood = false
 	_player_will_recover = false
 	_opponent_will_recover = false
+	_resume_time_remaining = 0.0
+	_begin_requested = false
+	_waiting_for_begin = false
 	match_state = MatchState.FIGHTING
 	_combat_control_enabled = true
 	if player_stamina != null:
@@ -615,12 +651,64 @@ func reset_for_next_round() -> void:
 	match_state_changed.emit(match_state)
 
 
+func _begin_resume_delay() -> void:
+	match_state = MatchState.RESUME_DELAY
+	_resume_time_remaining = resume_delay_seconds
+	_begin_requested = false
+	_waiting_for_begin = false
+	_discard_resume_inputs()
+	set_process(true)
+	if print_events:
+		print("Resume delay %.2fs" % resume_delay_seconds)
+	match_state_changed.emit(match_state)
+
+
+func _begin_presentation_length() -> float:
+	var banner := _announcement()
+	if banner != null and banner.has_method("light_pass_length"):
+		return float(banner.light_pass_length())
+	return 0.72
+
+
+func _announcement() -> Node:
+	var hud := get_node_or_null("../CombatHUD")
+	if hud != null:
+		var named := hud.get_node_or_null("CombatAnnouncement")
+		if named != null:
+			return named
+	if is_inside_tree():
+		return get_tree().get_first_node_in_group("combat_announcement")
+	return null
+
+
+func _play_begin() -> bool:
+	var banner := _announcement()
+	if banner == null or not banner.has_method("play_begin"):
+		return false
+	if banner.has_signal("pass_finished") and not banner.pass_finished.is_connected(_on_announcement_pass_finished):
+		banner.pass_finished.connect(_on_announcement_pass_finished)
+	banner.play_begin()
+	return true
+
+
+func _on_announcement_pass_finished(text: String) -> void:
+	if text != "BEGIN" or match_state != MatchState.RESUME_DELAY or not _waiting_for_begin:
+		return
+	_waiting_for_begin = false
+	_discard_resume_inputs()
+	_resume_fighting()
+	hud_text_changed.emit("FIGHTING")
+
+
 func _resume_fighting() -> void:
 	set_process(false)
 	current_count = 0
 	downed_side = DownedSide.NONE
 	will_recover = false
 	stand_up_count = -1
+	_resume_time_remaining = 0.0
+	_begin_requested = false
+	_waiting_for_begin = false
 	_candidate_live = false
 	_pending_kind = 0
 	_waiting_for_finisher = false
@@ -633,6 +721,29 @@ func _resume_fighting() -> void:
 		opponent_attack_state.set_combat_enabled(true)
 		_set_meter_updates_enabled(true)
 	match_state_changed.emit(match_state)
+	var rounds := get_node_or_null("../RoundManager")
+	if rounds != null and rounds.has_method("resume_after_knockdown"):
+		rounds.resume_after_knockdown()
+	if print_events:
+		print("FIGHTING RESUME")
+
+
+func _discard_resume_inputs() -> void:
+	var buffer = get_node_or_null("../PlayerActionBuffer")
+	if buffer != null and buffer.has_method("clear"):
+		buffer.clear()
+	var combat_input = get_node_or_null("../PlayerCombatInput")
+	if combat_input != null and combat_input.has_method("clear_held_evade"):
+		combat_input.clear_held_evade()
+	if combat_input != null and "is_guarding" in combat_input:
+		combat_input.is_guarding = false
+	if player_action_state != null and player_action_state.is_guarding():
+		player_action_state.set_guard_held(false)
+	var ai = get_node_or_null("../OpponentAI")
+	if ai != null and ai.has_method("clear_pending_combat_decisions"):
+		ai.clear_pending_combat_decisions()
+	if opponent_attack_state != null:
+		opponent_attack_state.set_combat_enabled(false)
 
 
 func _freeze_combat() -> void:

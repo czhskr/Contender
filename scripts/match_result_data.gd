@@ -27,6 +27,16 @@ var cumulative_player = CombatSideStatsScript.new()
 var cumulative_opponent = CombatSideStatsScript.new()
 var round_stats: Array = []
 var ended_in_round := 0
+var player_round_wins := 0
+var opponent_round_wins := 0
+
+static var current: MatchResultData = null
+static var resume_mode := 0
+
+
+static func publish(result: MatchResultData, mode: int) -> void:
+	current = result
+	resume_mode = mode
 
 
 func get_round_score(round_number: int):

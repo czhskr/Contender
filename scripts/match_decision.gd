@@ -139,6 +139,9 @@ func _build_base_result():
 		result.cumulative_opponent = combat_stats.cumulative_opponent.duplicate_stats()
 		result.round_stats = combat_stats.get_all_round_snapshots()
 		result.ended_in_round = combat_stats.current_round
+	if round_manager != null:
+		result.player_round_wins = round_manager.player_round_wins
+		result.opponent_round_wins = round_manager.opponent_round_wins
 	return result
 
 

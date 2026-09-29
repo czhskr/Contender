@@ -7,6 +7,7 @@ const Rounds = preload("res://scripts/round_manager.gd")
 const Knockdown = preload("res://scripts/knockdown_manager.gd")
 const Settings = preload("res://scripts/match_settings.gd")
 const CursorPolicy = preload("res://scripts/cursor_policy.gd")
+const UI_FONT: FontFile = preload("res://assets/fonts/esamanru Medium.ttf")
 
 const VIEW := Vector2(1152, 648)
 const SLAB_SIZE := Vector2(340, 66)
@@ -319,6 +320,8 @@ func _hide_menu() -> void:
 
 
 func _build() -> void:
+	var theme := Theme.new()
+	theme.default_font = UI_FONT
 	_overlay = ColorRect.new()
 	_overlay.name = "Dim"
 	_overlay.color = Color(0, 0, 0, 0.62)
@@ -329,6 +332,7 @@ func _build() -> void:
 	_main = Control.new()
 	_main.name = "Main"
 	_main.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_main.theme = theme
 	add_child(_main)
 	var total := SLAB_SIZE.y * MAIN.size() + GAP * (MAIN.size() - 1)
 	var origin := Vector2((VIEW.x - SLAB_SIZE.x) * 0.5, (VIEW.y - total) * 0.5)
@@ -349,6 +353,7 @@ func _build() -> void:
 	_options.name = "Options"
 	_options.visible = false
 	_options.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_options.theme = theme
 	add_child(_options)
 	var panel := ColorRect.new()
 	panel.color = Color(0.05, 0.05, 0.07, 0.78)

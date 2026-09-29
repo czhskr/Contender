@@ -17,9 +17,9 @@
 | 논리 해상도 | **1152×648** (`VisualDisplayLayout.VIEWPORT_SIZE`, `CombatVisualRoot.viewport_size`) |
 | 메인 씬 | `res://scenes/game.tscn` |
 | 기타 씬 | `scenes/title.tscn`, `scenes/result.tscn` (결과 연동은 `MatchDecision`까지 구현) |
-| 타깃 | **Web** 지향 프로토타입. **`export_presets.cfg`는 현재 없음** — 웹 빌드 설정은 아직 미구성. |
+| 타깃 | **Web** 지향 프로토타입. Export preset `Web`, 출력 `docs/index.html`. Custom shell은 `web_shell/contender.html`. |
 
-`project.godot`에 `window/size`는 명시되어 있지 않다. 비주얼/레이아웃 코드는 전부 **1152×648**을 가정한다.
+`project.godot` viewport는 **1152×648**이다. Stretch는 `canvas_items` / `keep` / scale **1.0** / `fractional`이다. Web canvas는 브라우저 창에 맞추고, 그 안에 16:9 구도를 유지한다. 페이지는 로딩이 끝난 뒤 `시작하기` 클릭으로만 엔진을 시작한다.
 
 ---
 
@@ -426,7 +426,6 @@ Base magnitude (NORMAL):
 
 - Telegraph / 공격 예고 연출
 - 신규 전투 시스템, 별도 Damage/HP, Counter/Target 부활
-- Web export preset
 
 ---
 
@@ -508,31 +507,33 @@ KD net = 0 이고 `|offense_diff| ≤ 1.5` → 10–10 draw.
 프로젝트 루트에서 (Godot 4.7.2):
 
 ```text
-godot --headless --path . -s res://kd_meter_smoke_test.gd
-godot --headless --path . -s res://combat_simplify_smoke_test.gd
-godot --headless --path . -s res://balance_smoke_test.gd
-godot --headless --path . -s res://ai_pacing_smoke_test.gd
-godot --headless --path . -s res://hit_stun_smoke_test.gd
-godot --headless --path . -s res://visual_motion_smoke_test.gd
-godot --headless --path . -s res://action_buffer_smoke_test.gd
-godot --headless --path . -s res://continuous_evade_smoke_test.gd
-godot --headless --path . -s res://finisher_impact_freeze_smoke_test.gd
-godot --headless --path . -s res://screen_shake_smoke_test.gd
-godot --headless --path . -s res://audio_smoke_test.gd
+godot --headless --path . -s res://tests/systems/kd_meter_smoke_test.gd
+godot --headless --path . -s res://tests/combat/combat_simplify_smoke_test.gd
+godot --headless --path . -s res://tests/combat/balance_smoke_test.gd
+godot --headless --path . -s res://tests/ai/ai_pacing_smoke_test.gd
+godot --headless --path . -s res://tests/combat/hit_stun_smoke_test.gd
+godot --headless --path . -s res://tests/ui/visual_motion_smoke_test.gd
+godot --headless --path . -s res://tests/combat/action_buffer_smoke_test.gd
+godot --headless --path . -s res://tests/combat/continuous_evade_smoke_test.gd
+godot --headless --path . -s res://tests/systems/finisher_impact_freeze_smoke_test.gd
+godot --headless --path . -s res://tests/ui/screen_shake_smoke_test.gd
+godot --headless --path . -s res://tests/systems/audio_smoke_test.gd
 godot --headless --path . --quit-after 2
 ```
 
+테스트는 `tests/ai`, `tests/combat`, `tests/systems`, `tests/ui`에 있다.
+
 | 파일 | 목적 |
 |---|---|
-| `kd_meter_smoke_test.gd` | KD Meter, 공격 KD 값, legacy 시스템 부재, HUD |
-| `combat_simplify_smoke_test.gd` | Duck/Target/Just/Counter 제거, Straight-only AI |
-| `balance_smoke_test.gd` | AI interval/follow-up, coordinator |
-| `ai_pacing_smoke_test.gd` | cooldown 0, follow-up, difficulty |
-| `hit_stun_smoke_test.gd` | HitStun 컴포넌트·씬 배선 |
-| `visual_motion_smoke_test.gd` | Breathing/Continuous Evade POV/Parallax/Shake/Recovery |
-| `action_buffer_smoke_test.gd` | Action Buffer / Attack Recovery Cancel / Evade cancel |
-| `continuous_evade_smoke_test.gd` | Continuous Evade Movement/Timing/stamina/pass-by/down-idle |
-| `finisher_impact_freeze_smoke_test.gd` | 결정타 Impact Freeze / pose hold / Count 순서 / no time_scale |
+| `tests/systems/kd_meter_smoke_test.gd` | KD Meter, 공격 KD 값, legacy 시스템 부재, HUD |
+| `tests/combat/combat_simplify_smoke_test.gd` | Duck/Target/Just/Counter 제거, Straight-only AI |
+| `tests/combat/balance_smoke_test.gd` | AI interval/follow-up, coordinator |
+| `tests/ai/ai_pacing_smoke_test.gd` | cooldown 0, follow-up, difficulty |
+| `tests/combat/hit_stun_smoke_test.gd` | HitStun 컴포넌트·씬 배선 |
+| `tests/ui/visual_motion_smoke_test.gd` | Breathing/Continuous Evade POV/Parallax/Shake/Recovery |
+| `tests/combat/action_buffer_smoke_test.gd` | Action Buffer / Attack Recovery Cancel / Evade cancel |
+| `tests/combat/continuous_evade_smoke_test.gd` | Continuous Evade Movement/Timing/stamina/pass-by/down-idle |
+| `tests/systems/finisher_impact_freeze_smoke_test.gd` | 결정타 Impact Freeze / pose hold / Count 순서 / no time_scale |
 
 전투 판정을 우회하는 compatibility hack으로 테스트를 통과시키지 말 것.
 
@@ -576,7 +577,7 @@ godot --headless --path . --quit-after 2
 
 - [ ] **Telegraph** (Opponent 긴 Startup 대비 예고) — 아직 없음. 필요 여부는 플레이 후 결정.
 - [ ] Opponent Startup(0.8/0.9) 단축 여부 — **미결정**. 임의 변경 금지.
-- [ ] Web `export_presets.cfg` 구성.
+- [x] Web `export_presets.cfg` 와 custom HTML shell (`web_shell/contender.html` → `docs/index.html`).
 - [ ] Title/Result 플로우·메타 진행 강화 (전투 코어 외).
 - [ ] 문서/코드 변경분 커밋은 **사용자 요청 시**만.
 
@@ -588,8 +589,8 @@ godot --headless --path . --quit-after 2
 |---|---|
 | `player_health.gd` | 없음 (정상) |
 | `assets/README.md` | 현재 `p.*` / `o.*` / `bg_*` 기준으로 정리됨 |
-| `export_presets.cfg` | 없음 |
-| `project.godot` window size | 미명시 — 코드는 1152×648 가정 |
+| `export_presets.cfg` | Web preset. Shell `res://web_shell/contender.html`. 출력 `docs/index.html` |
+| `project.godot` window size | 1152×648, stretch keep / canvas_items / fractional |
 | `data/attacks/left_straight.tres`, `opponent left_straight.tres` | 필드 오버라이드 비어 있음 → **스크립트 기본값에 의존** (의도된 값과 일치하는지 변경 시 주의) |
 | Opponent Hook `.tres` | 데이터만 존재, AI 미사용 — 삭제 필수는 아님 |
 | Git | `main` clean / origin 동기화 (`73aa87a` 기준; 이후 로컬 문서 수정은 커밋 전 확인) |

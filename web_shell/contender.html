@@ -1,0 +1,234 @@
+<!DOCTYPE html>
+<html lang="ko">
+	<head>
+		<meta charset="utf-8">
+		<meta name="viewport" content="width=device-width, user-scalable=no, initial-scale=1.0">
+		<title>$GODOT_PROJECT_NAME</title>
+		<style>
+html, body, #canvas {
+	margin: 0;
+	padding: 0;
+	border: 0;
+	background: #000;
+}
+
+html, body {
+	width: 100%;
+	height: 100%;
+	overflow: hidden;
+	touch-action: none;
+}
+
+#canvas {
+	display: block;
+	background: #000;
+}
+
+#canvas:focus {
+	outline: none;
+}
+
+#boot {
+	position: fixed;
+	inset: 0;
+	z-index: 2;
+	display: flex;
+	flex-direction: column;
+	align-items: center;
+	justify-content: center;
+	gap: 22px;
+	background: #000;
+	color: #f2ede0;
+	font-family: "Segoe UI", "Malgun Gothic", sans-serif;
+}
+
+#boot-logo, #boot-word {
+	width: min(760px, 86vw);
+	height: auto;
+}
+
+#boot-word {
+	font-size: 42px;
+	font-weight: 700;
+	letter-spacing: 0.18em;
+	text-align: center;
+}
+
+#boot-loading {
+	display: flex;
+	flex-direction: column;
+	align-items: center;
+	gap: 14px;
+}
+
+#boot-status {
+	margin: 0;
+	font-size: 18px;
+	letter-spacing: 0.22em;
+}
+
+#boot-track {
+	width: min(420px, 70vw);
+	height: 8px;
+	background: rgba(242, 237, 224, 0.22);
+}
+
+#boot-fill {
+	width: 0;
+	height: 100%;
+	background: #f2ede0;
+}
+
+#boot-start {
+	width: 280px;
+	height: 58px;
+	border: 0;
+	background: #f2ede0;
+	color: #120f14;
+	font: 700 22px/1 "Segoe UI", "Malgun Gothic", sans-serif;
+	letter-spacing: 0.08em;
+	cursor: pointer;
+}
+
+#boot-start:disabled {
+	cursor: default;
+	opacity: 0.7;
+}
+
+#boot.is-ready #boot-loading {
+	display: none;
+}
+
+#boot:not(.is-ready) #boot-start {
+	display: none;
+}
+
+#boot-error {
+	display: none;
+	max-width: 36rem;
+	margin: 0 2rem;
+	color: #f2ede0;
+	text-align: center;
+	line-height: 1.4;
+}
+
+#boot.is-error #boot-loading,
+#boot.is-error #boot-start {
+	display: none;
+}
+
+#boot.is-error #boot-error {
+	display: block;
+}
+		</style>
+		$GODOT_HEAD_INCLUDE
+	</head>
+	<body>
+		<canvas id="canvas" tabindex="0">
+			Your browser does not support the canvas tag.
+		</canvas>
+		<div id="boot">
+			<img id="boot-logo" src="shell/contender_logo.png" alt="CONTENDER">
+			<div id="boot-loading">
+				<p id="boot-status">LOADING</p>
+				<div id="boot-track"><div id="boot-fill"></div></div>
+			</div>
+			<button id="boot-start" type="button">시작하기</button>
+			<p id="boot-error"></p>
+		</div>
+		<script src="$GODOT_URL"></script>
+		<script>
+const GODOT_CONFIG = $GODOT_CONFIG;
+const GODOT_THREADS_ENABLED = $GODOT_THREADS_ENABLED;
+
+(function () {
+	const boot = document.getElementById('boot');
+	const logo = document.getElementById('boot-logo');
+	const statusText = document.getElementById('boot-status');
+	const fill = document.getElementById('boot-fill');
+	const startButton = document.getElementById('boot-start');
+	const errorText = document.getElementById('boot-error');
+	const canvas = document.getElementById('canvas');
+
+	logo.addEventListener('error', function () {
+		const word = document.createElement('div');
+		word.id = 'boot-word';
+		word.textContent = 'CONTENDER';
+		logo.replaceWith(word);
+	});
+
+	function setProgress(current, total) {
+		if (!(current > 0 && total > 0)) {
+			statusText.textContent = 'LOADING';
+			return;
+		}
+		const percent = Math.max(0, Math.min(100, Math.floor((current / total) * 100)));
+		statusText.textContent = 'LOADING ' + percent + '%';
+		fill.style.width = percent + '%';
+	}
+
+	function showError(err) {
+		console.error(err);
+		if (err instanceof Error) {
+			errorText.textContent = err.message;
+		} else if (typeof err === 'string') {
+			errorText.textContent = err;
+		} else {
+			errorText.textContent = 'An unknown error occurred.';
+		}
+		boot.classList.add('is-error');
+	}
+
+	GODOT_CONFIG.onProgress = setProgress;
+	const engine = new Engine(GODOT_CONFIG);
+	const executable = GODOT_CONFIG.executable;
+	const pack = GODOT_CONFIG.mainPack || (executable + '.pck');
+	let started = false;
+
+	function resumeGodotAudio() {
+		if (typeof GodotAudio !== 'undefined' && GodotAudio.ctx && GodotAudio.ctx.state !== 'running') {
+			GodotAudio.ctx.resume();
+		}
+	}
+
+	function launch() {
+		if (started) {
+			return;
+		}
+		started = true;
+		startButton.disabled = true;
+		engine.start({
+			args: ['--main-pack', pack].concat(GODOT_CONFIG.args || []),
+			canvas: canvas,
+			focusCanvas: true,
+		}).then(function () {
+			boot.remove();
+			canvas.focus();
+			resumeGodotAudio();
+		}, showError);
+	}
+
+	startButton.addEventListener('click', launch);
+
+	const missing = Engine.getMissingFeatures({
+		threads: GODOT_THREADS_ENABLED,
+	});
+
+	if (missing.length !== 0) {
+		showError('The following features required to run this page are missing:\n' + missing.join('\n'));
+		return;
+	}
+
+	Promise.all([
+		engine.init(executable),
+		engine.preloadFile(pack, pack),
+	]).then(function () {
+		fill.style.width = '100%';
+		statusText.textContent = 'LOADING 100%';
+		boot.classList.add('is-ready');
+		startButton.focus();
+	}, showError);
+}());
+		</script>
+	</body>
+</html>

@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="ko">
 	<head>
 		<meta charset="utf-8">
 		<meta name="viewport" content="width=device-width, user-scalable=no, initial-scale=1.0">
@@ -9,85 +9,116 @@ html, body, #canvas {
 	margin: 0;
 	padding: 0;
 	border: 0;
+	background: #000;
 }
 
-body {
-	color: white;
-	background-color: black;
+html, body {
+	width: 100%;
+	height: 100%;
 	overflow: hidden;
 	touch-action: none;
 }
 
 #canvas {
 	display: block;
+	background: #000;
 }
 
 #canvas:focus {
 	outline: none;
 }
 
-#status, #status-splash, #status-progress {
-	position: absolute;
-	left: 0;
-	right: 0;
-}
-
-#status, #status-splash {
-	top: 0;
-	bottom: 0;
-}
-
-#status {
-	background-color: #242424;
+#boot {
+	position: fixed;
+	inset: 0;
+	z-index: 2;
 	display: flex;
 	flex-direction: column;
-	justify-content: center;
 	align-items: center;
-	visibility: hidden;
+	justify-content: center;
+	gap: 22px;
+	background: #000;
+	color: #f2ede0;
+	font-family: "Segoe UI", "Malgun Gothic", sans-serif;
 }
 
-#status-splash {
-	max-height: 100%;
-	max-width: 100%;
-	margin: auto;
+#boot-logo, #boot-word {
+	width: min(760px, 86vw);
+	height: auto;
 }
 
-#status-splash.show-image--false {
-	display: none;
-}
-
-#status-splash.fullsize--true {
-	height: 100%;
-	width: 100%;
-	object-fit: contain;
-}
-
-#status-splash.use-filter--false {
-	image-rendering: pixelated;
-}
-
-#status-progress, #status-notice {
-	display: none;
-}
-
-#status-progress {
-	bottom: 10%;
-	width: 50%;
-	margin: 0 auto;
-}
-
-#status-notice {
-	background-color: #5b3943;
-	border-radius: 0.5rem;
-	border: 1px solid #9b3943;
-	color: #e0e0e0;
-	font-family: 'Noto Sans', 'Droid Sans', Arial, sans-serif;
-	line-height: 1.3;
-	margin: 0 2rem;
-	overflow: hidden;
-	padding: 1rem;
+#boot-word {
+	font-size: 42px;
+	font-weight: 700;
+	letter-spacing: 0.18em;
 	text-align: center;
-	z-index: 1;
+}
+
+#boot-loading {
+	display: flex;
+	flex-direction: column;
+	align-items: center;
+	gap: 14px;
+}
+
+#boot-status {
+	margin: 0;
+	font-size: 18px;
+	letter-spacing: 0.22em;
+}
+
+#boot-track {
+	width: min(420px, 70vw);
+	height: 8px;
+	background: rgba(242, 237, 224, 0.22);
+}
+
+#boot-fill {
+	width: 0;
+	height: 100%;
+	background: #f2ede0;
+}
+
+#boot-start {
+	width: 280px;
+	height: 58px;
+	border: 0;
+	background: #f2ede0;
+	color: #120f14;
+	font: 700 22px/1 "Segoe UI", "Malgun Gothic", sans-serif;
+	letter-spacing: 0.08em;
+	cursor: pointer;
+}
+
+#boot-start:disabled {
+	cursor: default;
+	opacity: 0.7;
+}
+
+#boot.is-ready #boot-loading {
+	display: none;
+}
+
+#boot:not(.is-ready) #boot-start {
+	display: none;
+}
+
+#boot-error {
+	display: none;
+	max-width: 36rem;
+	margin: 0 2rem;
+	color: #f2ede0;
+	text-align: center;
+	line-height: 1.4;
+}
+
+#boot.is-error #boot-loading,
+#boot.is-error #boot-start {
+	display: none;
+}
+
+#boot.is-error #boot-error {
+	display: block;
 }
 		</style>
 		<link id="-gd-engine-icon" rel="icon" type="image/png" href="index.icon.png" />
@@ -95,124 +126,110 @@ body {
 
 	</head>
 	<body>
-		<canvas id="canvas">
+		<canvas id="canvas" tabindex="0">
 			Your browser does not support the canvas tag.
 		</canvas>
-
-		<noscript>
-			Your browser does not support JavaScript.
-		</noscript>
-
-		<div id="status">
-			<img id="status-splash" class="show-image--true fullsize--true use-filter--true" src="index.png" alt="">
-			<progress id="status-progress"></progress>
-			<div id="status-notice"></div>
+		<div id="boot">
+			<img id="boot-logo" src="shell/contender_logo.png" alt="CONTENDER">
+			<div id="boot-loading">
+				<p id="boot-status">LOADING</p>
+				<div id="boot-track"><div id="boot-fill"></div></div>
+			</div>
+			<button id="boot-start" type="button">시작하기</button>
+			<p id="boot-error"></p>
 		</div>
-
 		<script src="index.js"></script>
 		<script>
-const GODOT_CONFIG = {"args":[],"canvasResizePolicy":2,"emscriptenPoolSize":8,"ensureCrossOriginIsolationHeaders":true,"executable":"index","experimentalVK":false,"fileSizes":{"index.pck":17378836,"index.wasm":37902138},"focusCanvas":true,"gdextensionLibs":[],"godotPoolSize":4};
+const GODOT_CONFIG = {"args":[],"canvasResizePolicy":2,"emscriptenPoolSize":8,"ensureCrossOriginIsolationHeaders":true,"executable":"index","experimentalVK":false,"fileSizes":{"index.pck":17402676,"index.wasm":39514754},"focusCanvas":true,"gdextensionLibs":[],"godotPoolSize":4};
 const GODOT_THREADS_ENABLED = false;
-const engine = new Engine(GODOT_CONFIG);
 
 (function () {
-	const statusOverlay = document.getElementById('status');
-	const statusProgress = document.getElementById('status-progress');
-	const statusNotice = document.getElementById('status-notice');
+	const boot = document.getElementById('boot');
+	const logo = document.getElementById('boot-logo');
+	const statusText = document.getElementById('boot-status');
+	const fill = document.getElementById('boot-fill');
+	const startButton = document.getElementById('boot-start');
+	const errorText = document.getElementById('boot-error');
+	const canvas = document.getElementById('canvas');
 
-	let initializing = true;
-	let statusMode = '';
+	logo.addEventListener('error', function () {
+		const word = document.createElement('div');
+		word.id = 'boot-word';
+		word.textContent = 'CONTENDER';
+		logo.replaceWith(word);
+	});
 
-	function setStatusMode(mode) {
-		if (statusMode === mode || !initializing) {
+	function setProgress(current, total) {
+		if (!(current > 0 && total > 0)) {
+			statusText.textContent = 'LOADING';
 			return;
 		}
-		if (mode === 'hidden') {
-			statusOverlay.remove();
-			initializing = false;
-			return;
-		}
-		statusOverlay.style.visibility = 'visible';
-		statusProgress.style.display = mode === 'progress' ? 'block' : 'none';
-		statusNotice.style.display = mode === 'notice' ? 'block' : 'none';
-		statusMode = mode;
+		const percent = Math.max(0, Math.min(100, Math.floor((current / total) * 100)));
+		statusText.textContent = 'LOADING ' + percent + '%';
+		fill.style.width = percent + '%';
 	}
 
-	function setStatusNotice(text) {
-		while (statusNotice.lastChild) {
-			statusNotice.removeChild(statusNotice.lastChild);
-		}
-		const lines = text.split('\n');
-		lines.forEach((line) => {
-			statusNotice.appendChild(document.createTextNode(line));
-			statusNotice.appendChild(document.createElement('br'));
-		});
-	}
-
-	function displayFailureNotice(err) {
+	function showError(err) {
 		console.error(err);
 		if (err instanceof Error) {
-			setStatusNotice(err.message);
+			errorText.textContent = err.message;
 		} else if (typeof err === 'string') {
-			setStatusNotice(err);
+			errorText.textContent = err;
 		} else {
-			setStatusNotice('An unknown error occurred.');
+			errorText.textContent = 'An unknown error occurred.';
 		}
-		setStatusMode('notice');
-		initializing = false;
+		boot.classList.add('is-error');
 	}
+
+	GODOT_CONFIG.onProgress = setProgress;
+	const engine = new Engine(GODOT_CONFIG);
+	const executable = GODOT_CONFIG.executable;
+	const pack = GODOT_CONFIG.mainPack || (executable + '.pck');
+	let started = false;
+
+	function resumeGodotAudio() {
+		if (typeof GodotAudio !== 'undefined' && GodotAudio.ctx && GodotAudio.ctx.state !== 'running') {
+			GodotAudio.ctx.resume();
+		}
+	}
+
+	function launch() {
+		if (started) {
+			return;
+		}
+		started = true;
+		startButton.disabled = true;
+		engine.start({
+			args: ['--main-pack', pack].concat(GODOT_CONFIG.args || []),
+			canvas: canvas,
+			focusCanvas: true,
+		}).then(function () {
+			boot.remove();
+			canvas.focus();
+			resumeGodotAudio();
+		}, showError);
+	}
+
+	startButton.addEventListener('click', launch);
 
 	const missing = Engine.getMissingFeatures({
 		threads: GODOT_THREADS_ENABLED,
 	});
 
 	if (missing.length !== 0) {
-		if (GODOT_CONFIG['serviceWorker'] && GODOT_CONFIG['ensureCrossOriginIsolationHeaders'] && 'serviceWorker' in navigator) {
-			let serviceWorkerRegistrationPromise;
-			try {
-				serviceWorkerRegistrationPromise = navigator.serviceWorker.getRegistration();
-			} catch (err) {
-				serviceWorkerRegistrationPromise = Promise.reject(new Error('Service worker registration failed.'));
-			}
-			// There's a chance that installing the service worker would fix the issue
-			Promise.race([
-				serviceWorkerRegistrationPromise.then((registration) => {
-					if (registration != null) {
-						return Promise.reject(new Error('Service worker already exists.'));
-					}
-					return registration;
-				}).then(() => engine.installServiceWorker()),
-				// For some reason, `getRegistration()` can stall
-				new Promise((resolve) => {
-					setTimeout(() => resolve(), 2000);
-				}),
-			]).then(() => {
-				// Reload if there was no error.
-				window.location.reload();
-			}).catch((err) => {
-				console.error('Error while registering service worker:', err);
-			});
-		} else {
-			// Display the message as usual
-			const missingMsg = 'Error\nThe following features required to run Godot projects on the Web are missing:\n';
-			displayFailureNotice(missingMsg + missing.join('\n'));
-		}
-	} else {
-		setStatusMode('progress');
-		engine.startGame({
-			'onProgress': function (current, total) {
-				if (current > 0 && total > 0) {
-					statusProgress.value = current;
-					statusProgress.max = total;
-				} else {
-					statusProgress.removeAttribute('value');
-					statusProgress.removeAttribute('max');
-				}
-			},
-		}).then(() => {
-			setStatusMode('hidden');
-		}, displayFailureNotice);
+		showError('The following features required to run this page are missing:\n' + missing.join('\n'));
+		return;
 	}
+
+	Promise.all([
+		engine.init(executable),
+		engine.preloadFile(pack, pack),
+	]).then(function () {
+		fill.style.width = '100%';
+		statusText.textContent = 'LOADING 100%';
+		boot.classList.add('is-ready');
+		startButton.focus();
+	}, showError);
 }());
 		</script>
 	</body>

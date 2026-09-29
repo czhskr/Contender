@@ -82,10 +82,6 @@ debug_force_opponent_knockdown={
 
 3d/physics_engine="Jolt Physics"
 
-[audio]
-
-buses/default_bus_layout="res://default_bus_layout.tres"
-
 [rendering]
 
 rendering_device/driver.windows="d3d12"

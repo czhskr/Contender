@@ -6,6 +6,7 @@ signal fight_pressed
 
 const Catalog = preload("res://scripts/trait_catalog.gd")
 const CursorPolicy = preload("res://scripts/cursor_policy.gd")
+const UI_FONT: FontFile = preload("res://assets/fonts/esamanru Medium.ttf")
 
 const VIEW := Vector2(1152, 648)
 const SLAB_SIZE := Vector2(340, 66)
@@ -71,16 +72,25 @@ func _fill(name_label: Label, benefit: Label, drawback: Label, traits: Array) ->
 
 
 func _build() -> void:
+	var theme := Theme.new()
+	theme.default_font = UI_FONT
+	var board := Control.new()
+	board.name = "Board"
+	board.position = Vector2.ZERO
+	board.size = VIEW
+	board.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	board.theme = theme
+	add_child(board)
 	var dim := ColorRect.new()
 	dim.color = Color(0, 0, 0, 0.45)
 	dim.set_anchors_preset(Control.PRESET_FULL_RECT)
 	dim.mouse_filter = Control.MOUSE_FILTER_STOP
-	add_child(dim)
+	board.add_child(dim)
 	_round = _label(Vector2(0, 108), Vector2(VIEW.x, 36), 22, PAPER)
 	_round.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	add_child(_round)
-	_add_side("OPPONENT", Vector2(64, 176))
-	_add_side("PLAYER", Vector2(788, 176))
+	board.add_child(_round)
+	_add_side(board, "OPPONENT", Vector2(64, 176))
+	_add_side(board, "PLAYER", Vector2(788, 176))
 	_continue = _Continue.new()
 	_continue.position = Vector2(436, 392)
 	_continue.size = Vector2(280, 58)
@@ -93,24 +103,24 @@ func _build() -> void:
 			audio.play_ui_hover()
 	)
 	_continue.activated.connect(_confirm)
-	add_child(_continue)
+	board.add_child(_continue)
 
 
-func _add_side(caption: String, origin: Vector2) -> void:
+func _add_side(board: Control, caption: String, origin: Vector2) -> void:
 	var plate := _Slab.new()
 	plate.position = origin
 	plate.size = Vector2(300, 156)
 	plate.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	add_child(plate)
+	board.add_child(plate)
 	var who := _label(origin + Vector2(28, 16), Vector2(244, 22), 13, Color(0.78, 0.76, 0.72))
 	who.text = caption
-	add_child(who)
+	board.add_child(who)
 	var name_label := _label(origin + Vector2(28, 42), Vector2(244, 40), 24, PAPER)
 	var benefit := _label(origin + Vector2(28, 90), Vector2(244, 24), 15, CREAM)
 	var drawback := _label(origin + Vector2(28, 114), Vector2(244, 24), 15, CREAM)
-	add_child(name_label)
-	add_child(benefit)
-	add_child(drawback)
+	board.add_child(name_label)
+	board.add_child(benefit)
+	board.add_child(drawback)
 	if caption == "PLAYER":
 		_player_name = name_label
 		_player_benefit = benefit

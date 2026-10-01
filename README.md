@@ -11,7 +11,7 @@
 
 > Web에서 바로 플레이할 수 있습니다.
 
-**[Play Contender](여기에_GitHub_Pages_주소)**
+**[Play Contender](https://czhskr.github.io/Contender/)**
 
 ※ Chrome 기반 데스크톱 브라우저 플레이를 권장합니다.
 
